@@ -107,12 +107,6 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
 .empty-state{ text-align:center; padding:30px 16px; opacity:.6; font-size:13px; }
 
 /* Classificação */
-#standings-config{ display:flex; flex-direction:column; gap:8px; margin:12px 0; padding:10px; background:var(--paper); border-radius:10px; }
-#standings-config label{ display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--ink-soft); gap:8px; }
-#standings-config input{
-  width:56px; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:var(--card);
-  color:var(--ink-soft); font-size:12px; text-align:center;
-}
 #standings-table{ width:100%; border-collapse:collapse; }
 #standings-table th, #standings-table td{
   padding:8px 8px; text-align:left; border-bottom:1px solid var(--line); font-size:12px;
@@ -123,10 +117,6 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
   font-size:10px; text-transform:uppercase; font-weight:800; color:var(--ink); padding-top:14px;
   border-bottom:1px solid var(--line); letter-spacing:.5px;
 }
-#standings-table tr.st-classified td:first-child{ box-shadow: inset 3px 0 0 var(--win); }
-#standings-table tr.st-playoff td:first-child{ box-shadow: inset 3px 0 0 var(--gold); }
-#standings-table tr.st-eliminated td:first-child{ box-shadow: inset 3px 0 0 var(--loss); opacity:.55; }
-#standings-table tr.st-eliminated td{ opacity:.55; }
 
 /* Modal de série */
 #series-modal{ position:fixed; inset:0; z-index:90; display:flex; align-items:center; justify-content:center; }
