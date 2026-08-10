@@ -2,12 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="theme-color" content="#B5361C" />
 <title>Torneios Dota 2</title>
 <link rel="manifest" href="./manifest.json" />
 <link rel="icon" href="./icon-192.png" />
-<link rel="apple-touch-icon" href="./icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Carlito:wght@400;700&family=Chakra+Petch:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./style.css" />
@@ -19,54 +18,75 @@
   <header id="topbar">
     <div id="topbar-title">
       <span class="logo-dot"></span>
-      <h1 id="league-title">Torneios Dota 2</h1>
+      <h1>Torneios Dota 2</h1>
     </div>
     <button id="theme-toggle" aria-label="Alternar tema">🌙</button>
   </header>
 
-  <!-- TELA: BUSCA DE TORNEIO -->
-  <section id="view-search" class="view">
-    <div class="search-box">
-      <label for="league-search">Buscar torneio</label>
-      <input id="league-search" type="text" placeholder="ex: International 2026, ESL, Riyadh Masters..." autocomplete="off" />
-    </div>
-    <div id="league-recent"></div>
-    <ul id="league-results"></ul>
-  </section>
+  <div id="layout">
 
-  <!-- TELA: DASHBOARD DO TORNEIO -->
-  <section id="view-dashboard" class="view hidden">
-    <nav id="tabs">
-      <button class="tab-btn active" data-tab="live">Ao vivo</button>
-      <button class="tab-btn" data-tab="results">Resultados</button>
-      <button class="tab-btn" data-tab="standings">Classificação</button>
-    </nav>
+    <!-- COLUNA ESQUERDA: torneios -->
+    <aside id="sidebar-left">
+      <div class="search-box">
+        <label for="league-search">Buscar torneio</label>
+        <input id="league-search" type="text" placeholder="ex: International 2026, ESL..." autocomplete="off" />
+      </div>
+      <div id="league-recent"></div>
+      <ul id="league-results"></ul>
+    </aside>
 
-    <div id="tab-live" class="tab-panel">
-      <div id="live-list"></div>
-    </div>
+    <!-- COLUNA CENTRAL -->
+    <main id="center">
 
-    <div id="tab-results" class="tab-panel hidden">
-      <div id="results-list"></div>
-    </div>
+      <!-- estado padrão: nenhum torneio selecionado -->
+      <section id="center-default">
+        <h2>Próximas partidas <span id="next-league-name" class="section-sub"></span></h2>
+        <div id="upcoming-list"><div class="empty-state">Carregando...</div></div>
 
-    <div id="tab-standings" class="tab-panel hidden">
+        <h2>Últimos resultados <span id="last-league-name" class="section-sub"></span></h2>
+        <div id="recent-results-list"><div class="empty-state">Carregando...</div></div>
+      </section>
+
+      <!-- estado: torneio selecionado -->
+      <section id="center-league" class="hidden">
+        <div id="league-header">
+          <h2 id="league-title"></h2>
+          <button id="btn-change-league">← Visão geral</button>
+        </div>
+        <nav id="tabs">
+          <button class="tab-btn active" data-tab="live">Ao vivo</button>
+          <button class="tab-btn" data-tab="results">Resultados</button>
+        </nav>
+        <div id="tab-live" class="tab-panel">
+          <div id="live-list"></div>
+        </div>
+        <div id="tab-results" class="tab-panel hidden">
+          <div id="results-list"></div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- COLUNA DIREITA: classificação -->
+    <aside id="sidebar-right">
+      <h2 id="standings-title">Classificação</h2>
+      <div id="standings-sub" class="section-sub"></div>
       <table id="standings-table">
-        <thead>
-          <tr><th>#</th><th>Time</th><th>V</th><th>D</th></tr>
-        </thead>
+        <thead><tr><th>#</th><th>Time</th><th>V</th><th>D</th></tr></thead>
         <tbody id="standings-body"></tbody>
       </table>
+    </aside>
+
+  </div>
+
+  <!-- MODAL: detalhe da partida -->
+  <div id="match-modal" class="hidden">
+    <div id="match-modal-backdrop"></div>
+    <div id="match-modal-sheet">
+      <button id="btn-close-match">✕</button>
+      <div id="match-detail"></div>
     </div>
-
-    <button id="btn-change-league">Trocar torneio</button>
-  </section>
-
-  <!-- TELA: DETALHE DA PARTIDA -->
-  <section id="view-match" class="view hidden">
-    <button id="btn-back-match">← Voltar</button>
-    <div id="match-detail"></div>
-  </section>
+  </div>
 
   <div id="toast"></div>
 </div>
