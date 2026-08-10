@@ -15,6 +15,7 @@ function isAllowed(path) {
     /^matches\/\d+$/.test(path) ||
     /^teams\/\d+$/.test(path) ||
     /^players\/\d+$/.test(path) ||
+    path === "proMatches" ||
     path === "constants/heroes" ||
     path === "constants/items"
   );
@@ -37,6 +38,7 @@ exports.handler = async (event) => {
     // cache curto no navegador/CDN pra não bater na OpenDota toda hora
     const cacheSeconds = path.startsWith("constants/") || path.startsWith("teams/") ? 86400
       : path.startsWith("players/") ? 3600
+      : path === "proMatches" ? 60
       : 30;
 
     return {
