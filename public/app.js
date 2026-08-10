@@ -199,17 +199,18 @@ async function loadLive() {
     const data = await liveFetch(currentLeague.leagueid);
     const games = (data && data.result && data.result.games) || [];
     if (!games.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo agora neste torneio.</div>`; return; }
-    box.innerHTML = `<div class="match-grid">${games.map(renderLiveCard).join("")}</div>`;
+    box.innerHTML = `<div class="match-grid">${games.map((g, i) => renderLiveCard(g, i)).join("")}</div>`;
+    box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(games[+el.dataset.live])));
   } catch { box.innerHTML = `<div class="empty-state">Não foi possível carregar partidas ao vivo.</div>`; }
 }
-function renderLiveCard(g) {
+function renderLiveCard(g, idx) {
   const sb = g.scoreboard;
   const radiantName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const direName = (g.dire_team && g.dire_team.team_name) || "Dire";
   const rScore = sb && sb.radiant ? sb.radiant.score : 0;
   const dScore = sb && sb.dire ? sb.dire.score : 0;
   const minutes = sb ? Math.floor(sb.duration / 60) : 0;
-  return `<div class="match-card">
+  return `<div class="match-card" data-live="${idx}">
       <span class="live-badge">● Ao vivo · ${minutes}min</span>
       <div class="match-teams" style="margin-top:8px">
         <span class="team-name">${radiantName}</span>
@@ -217,6 +218,62 @@ function renderLiveCard(g) {
         <span class="team-name" style="text-align:right">${direName}</span>
       </div>
     </div>`;
+}
+
+/* ---------- detalhe de partida ao vivo (formato diferente do resultado finalizado) ---------- */
+async function openLiveGame(g) {
+  $("#match-modal").classList.remove("hidden");
+  $("#match-detail").innerHTML = `<div class="empty-state">Carregando...</div>`;
+  try {
+    const sb = g.scoreboard || {};
+    const rPlayers = (sb.radiant && sb.radiant.player) || [];
+    const dPlayers = (sb.dire && sb.dire.player) || [];
+    await enrichPlayerNames([...rPlayers, ...dPlayers]);
+    $("#match-detail").innerHTML = renderLiveMatchDetail(g);
+  } catch { $("#match-detail").innerHTML = `<div class="empty-state">Erro ao carregar a partida ao vivo.</div>`; }
+}
+function renderLiveMatchDetail(g) {
+  const sb = g.scoreboard || {};
+  const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
+  const dName = (g.dire_team && g.dire_team.team_name) || "Dire";
+  const minutes = Math.floor((sb.duration || 0) / 60);
+  const picksBansBlock = (side, isPick) => {
+    const arr = (sb[side] && sb[side][isPick ? "picks" : "bans"]) || [];
+    if (!arr.length) return "";
+    return arr.map((p) => `<div class="hero-chip ${isPick ? "" : "banned"}"><img src="${heroImg(p.hero_id)}" alt="${heroName(p.hero_id)}" title="${heroName(p.hero_id)}"></div>`).join("");
+  };
+  const playerRow = (p) => {
+    const items = [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5]
+      .map((it) => (it ? `<img src="${itemImg(it)}" alt="">` : `<img src="" alt="" style="opacity:0">`)).join("");
+    return `<tr>
+      <td><div class="player-hero"><img src="${heroImg(p.hero_id)}" alt="">${(p.display_name && p.display_name !== "—") ? p.display_name : `Jogador ${p.account_id ?? "?"}`}</div></td>
+      <td class="numeric">${p.kills ?? 0}/${p.death ?? 0}/${p.assists ?? 0}</td>
+      <td class="numeric">${p.gold_per_min ?? "-"}</td>
+      <td class="numeric">${p.xp_per_min ?? "-"}</td>
+      <td><div class="items-row">${items}</div></td>
+    </tr>`;
+  };
+  return `
+    <div class="match-header">
+      <div><span class="live-badge">● Ao vivo</span></div>
+      <div>${rName} <span class="score">${(sb.radiant && sb.radiant.score) || 0} - ${(sb.dire && sb.dire.score) || 0}</span> ${dName}</div>
+      <div class="match-meta" style="justify-content:center;gap:16px"><span>${minutes} min (em andamento)</span></div>
+    </div>
+    <div class="team-block-title">Picks &amp; bans — ${rName}</div>
+    <div class="picks-row">${picksBansBlock("radiant", true)}${picksBansBlock("radiant", false)}</div>
+    <div class="team-block-title">Picks &amp; bans — ${dName}</div>
+    <div class="picks-row">${picksBansBlock("dire", true)}${picksBansBlock("dire", false)}</div>
+    <div class="team-block-title">${rName}</div>
+    <table class="player-table">
+      <thead><tr><th>Jogador</th><th>KDA</th><th>GPM</th><th>XPM</th><th>Itens</th></tr></thead>
+      <tbody>${((sb.radiant && sb.radiant.player) || []).map(playerRow).join("")}</tbody>
+    </table>
+    <div class="team-block-title">${dName}</div>
+    <table class="player-table">
+      <thead><tr><th>Jogador</th><th>KDA</th><th>GPM</th><th>XPM</th><th>Itens</th></tr></thead>
+      <tbody>${((sb.dire && sb.dire.player) || []).map(playerRow).join("")}</tbody>
+    </table>
+  `;
 }
 
 /* ---------- agrupamento de partidas em séries (bo1/bo3/bo5) ---------- */
@@ -288,11 +345,11 @@ function attachSeriesClicks(container, seriesList) {
   });
 }
 
-/* ---------- classificação (coluna direita) ---------- */
+/* ---------- classificação (coluna direita): com grupos inferidos + cores ---------- */
 function computeStandingsFromMatches(matches) {
   const series = groupIntoSeries(matches);
   const table = {};
-  const ensure = (id, name) => (table[id] = table[id] || { name, seriesW: 0, seriesL: 0, mapsW: 0, mapsL: 0 });
+  const ensure = (id, name) => (table[id] = table[id] || { id: String(id), name, seriesW: 0, seriesL: 0, mapsW: 0, mapsL: 0 });
   series.forEach((s) => {
     if (s.teamAId == null || s.teamBId == null) return;
     const A = ensure(s.teamAId, s.teamAName), B = ensure(s.teamBId, s.teamBName);
@@ -307,25 +364,96 @@ function computeStandingsFromMatches(matches) {
   );
 }
 
+// times que nunca se enfrentaram não podem estar no mesmo grupo/chave —
+// usamos isso pra separar grupos automaticamente enquanto eles não se cruzam nos playoffs.
+function computeGroupClusters(matches) {
+  const parent = {};
+  const find = (x) => { if (parent[x] === undefined) parent[x] = x; return parent[x] === x ? x : (parent[x] = find(parent[x])); };
+  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  groupIntoSeries(matches).forEach((s) => {
+    if (s.teamAId == null || s.teamBId == null) return;
+    const a = String(s.teamAId), b = String(s.teamBId);
+    find(a); find(b); union(a, b);
+  });
+  const clusters = {};
+  Object.keys(parent).forEach((id) => { const root = find(id); (clusters[root] = clusters[root] || []).push(id); });
+  return Object.values(clusters);
+}
+
+function standingsThresholdsKey(leagueId) { return `dota:thresholds:${leagueId}`; }
+function getThresholds(leagueId) {
+  return lsGet(standingsThresholdsKey(leagueId), { diretos: 0, decisao: 0 });
+}
+function rowColorClass(position, thresholds) {
+  if (thresholds.diretos > 0 && position <= thresholds.diretos) return "st-classified";
+  if (thresholds.decisao > 0 && position <= thresholds.diretos + thresholds.decisao) return "st-playoff";
+  if (thresholds.diretos > 0 || thresholds.decisao > 0) return "st-eliminated";
+  return "";
+}
+
+let standingsState = null; // { leagueId, matches } — guardado pra recolorir sem refetch quando os campos mudam
+
+function renderStandingsTable(matches, leagueId) {
+  const body = $("#standings-body");
+  const thresholds = getThresholds(leagueId);
+  const clusters = computeGroupClusters(matches);
+  const allRows = computeStandingsFromMatches(matches);
+  const byId = {}; allRows.forEach((r) => (byId[r.id] = r));
+
+  // só vale a pena separar em grupos visuais se houver mais de 1 cluster com 2+ times
+  const realGroups = clusters.filter((c) => c.length > 1);
+  const useGroups = realGroups.length > 1;
+
+  const renderGroup = (rows, label) => {
+    const rowsHtml = rows.map((r, i) => {
+      const pos = i + 1;
+      const cls = rowColorClass(pos, thresholds);
+      return `<tr class="${cls}"><td>${pos}</td><td>${r.name}</td><td class="numeric">${r.seriesW}-${r.seriesL}</td><td class="numeric">${r.mapsW}-${r.mapsL}</td></tr>`;
+    }).join("");
+    return (label ? `<tr class="group-label-row"><td colspan="4">${label}</td></tr>` : "") + rowsHtml;
+  };
+
+  if (!allRows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
+
+  if (useGroups) {
+    const letters = "ABCDEFGH";
+    let html = "";
+    realGroups
+      .map((ids) => ids.map((id) => byId[id]).filter(Boolean).sort((a, b) => b.seriesW - a.seriesW || (b.mapsW - b.mapsL) - (a.mapsW - a.mapsL)))
+      .sort((a, b) => b.length - a.length)
+      .forEach((rows, i) => { html += renderGroup(rows, `Grupo ${letters[i] || i + 1}`); });
+    body.innerHTML = html;
+  } else {
+    body.innerHTML = renderGroup(allRows, null);
+  }
+}
+
 async function loadStandingsFor(leagueId, leagueName, isDefault) {
   const body = $("#standings-body");
   $("#standings-title").textContent = "Classificação";
   $("#standings-sub").textContent = isDefault ? `${leagueName} (último encerrado)` : leagueName;
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  const th = getThresholds(leagueId);
+  $("#th-diretos").value = th.diretos || "";
+  $("#th-decisao").value = th.decisao || "";
   try {
     let matches = (cachedMatches && !isDefault) ? cachedMatches : await odFetch(`leagues/${leagueId}/matches`);
     matches = await enrichTeamNames(matches);
-    const rows = computeStandingsFromMatches(matches);
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
-    body.innerHTML = rows.map((r, i) =>
-      `<tr><td>${i + 1}</td><td>${r.name}</td><td class="numeric">${r.seriesW}-${r.seriesL}</td><td class="numeric">${r.mapsW}-${r.mapsL}</td></tr>`
-    ).join("");
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
-    body.innerHTML = rows.map((r, i) =>
-      `<tr><td>${i + 1}</td><td>${r.name}</td><td class="numeric">${r.seriesW}-${r.seriesL}</td><td class="numeric">${r.mapsW}-${r.mapsL}</td></tr>`
-    ).join("");
+    standingsState = { leagueId, matches };
+    renderStandingsTable(matches, leagueId);
   } catch { body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao calcular classificação.</td></tr>`; }
 }
+
+function saveThresholdsAndRerender() {
+  if (!standingsState) return;
+  const diretos = parseInt($("#th-diretos").value, 10) || 0;
+  const decisao = parseInt($("#th-decisao").value, 10) || 0;
+  lsSet(standingsThresholdsKey(standingsState.leagueId), { diretos, decisao });
+  renderStandingsTable(standingsState.matches, standingsState.leagueId);
+}
+$("#th-diretos").addEventListener("input", saveThresholdsAndRerender);
+$("#th-decisao").addEventListener("input", saveThresholdsAndRerender);
+
 
 /* ---------- visão geral (sem torneio selecionado) ---------- */
 async function loadCenterDefault() {
