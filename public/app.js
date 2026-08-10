@@ -219,6 +219,41 @@ function renderLiveCard(g) {
     </div>`;
 }
 
+/* ---------- agrupamento de partidas em séries (bo1/bo3/bo5) ---------- */
+function seriesWinsNeeded(seriesType) {
+  if (seriesType === 2) return 3; // bo5
+  if (seriesType === 1) return 2; // bo3
+  return 1; // bo1 / desconhecido
+}
+function groupIntoSeries(matches) {
+  const groups = {};
+  matches.forEach((m) => {
+    const key = m.series_id ? `s-${m.series_id}` : `single-${m.match_id}`;
+    (groups[key] = groups[key] || []).push(m);
+  });
+  return Object.values(groups).map((games) => {
+    games.sort((a, b) => a.start_time - b.start_time);
+    const first = games[0];
+    const teamAId = first.radiant_team_id, teamBId = first.dire_team_id;
+    const wins = {};
+    games.forEach((g) => {
+      const winnerId = g.radiant_win ? g.radiant_team_id : g.dire_team_id;
+      wins[winnerId] = (wins[winnerId] || 0) + 1;
+    });
+    const scoreA = wins[teamAId] || 0, scoreB = wins[teamBId] || 0;
+    const seriesType = first.series_type || 0;
+    const needed = seriesWinsNeeded(seriesType);
+    const decided = Math.max(scoreA, scoreB) >= needed;
+    return {
+      games, teamAId, teamBId,
+      teamAName: first.radiant_name || `Time ${teamAId}`,
+      teamBName: first.dire_name || `Time ${teamBId}`,
+      scoreA, scoreB, decided,
+      startTime: games[games.length - 1].start_time,
+    };
+  });
+}
+
 async function loadResults() {
   const box = $("#results-list");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
@@ -229,44 +264,66 @@ async function loadResults() {
       cachedMatches.sort((a, b) => b.start_time - a.start_time);
     }
     if (!cachedMatches.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida finalizada ainda.</div>`; return; }
-    box.innerHTML = `<div class="match-grid">${cachedMatches.map(renderResultCard).join("")}</div>`;
-    box.querySelectorAll("[data-match]").forEach((el) => el.addEventListener("click", () => openMatch(el.dataset.match)));
+    const series = groupIntoSeries(cachedMatches).sort((a, b) => b.startTime - a.startTime);
+    box.innerHTML = `<div class="match-grid">${series.map(renderSeriesCard).join("")}</div>`;
+    attachSeriesClicks(box, series);
   } catch { box.innerHTML = `<div class="empty-state">Erro ao carregar resultados.</div>`; }
 }
-function renderResultCard(m) {
-  const rWin = m.radiant_win;
-  const rName = m.radiant_name || "Radiant", dName = m.dire_name || "Dire";
-  const date = new Date(m.start_time * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-  return `<div class="match-card" data-match="${m.match_id}">
+function renderSeriesCard(s, idx) {
+  const aWon = s.decided && s.scoreA > s.scoreB;
+  const bWon = s.decided && s.scoreB > s.scoreA;
+  const date = new Date(s.startTime * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `<div class="match-card" data-series="${idx}">
       <div class="match-teams">
-        <span class="team-name ${rWin ? "winner" : ""}">${rName}</span>
-        <span class="score">${m.radiant_score ?? "-"} - ${m.dire_score ?? "-"}</span>
-        <span class="team-name ${!rWin ? "winner" : ""}" style="text-align:right">${dName}</span>
+        <span class="team-name ${aWon ? "winner" : ""}">${s.teamAName}</span>
+        <span class="score">${s.scoreA} - ${s.scoreB}</span>
+        <span class="team-name ${bWon ? "winner" : ""}" style="text-align:right">${s.teamBName}</span>
       </div>
-      <div class="match-meta"><span>${date}</span><span>${Math.round(m.duration / 60)} min</span></div>
+      <div class="match-meta"><span>${date}</span><span>${s.games.length} jogo${s.games.length > 1 ? "s" : ""}${s.decided ? "" : " · em andamento"}</span></div>
     </div>`;
+}
+function attachSeriesClicks(container, seriesList) {
+  container.querySelectorAll("[data-series]").forEach((el) => {
+    el.addEventListener("click", () => openSeries(seriesList[+el.dataset.series]));
+  });
 }
 
 /* ---------- classificação (coluna direita) ---------- */
+function computeStandingsFromMatches(matches) {
+  const series = groupIntoSeries(matches);
+  const table = {};
+  const ensure = (id, name) => (table[id] = table[id] || { name, seriesW: 0, seriesL: 0, mapsW: 0, mapsL: 0 });
+  series.forEach((s) => {
+    if (s.teamAId == null || s.teamBId == null) return;
+    const A = ensure(s.teamAId, s.teamAName), B = ensure(s.teamBId, s.teamBName);
+    A.mapsW += s.scoreA; A.mapsL += s.scoreB;
+    B.mapsW += s.scoreB; B.mapsL += s.scoreA;
+    if (s.decided) {
+      if (s.scoreA > s.scoreB) { A.seriesW++; B.seriesL++; } else { B.seriesW++; A.seriesL++; }
+    }
+  });
+  return Object.values(table).sort((a, b) =>
+    b.seriesW - a.seriesW || (b.mapsW - b.mapsL) - (a.mapsW - a.mapsL) || b.mapsW - a.mapsW
+  );
+}
+
 async function loadStandingsFor(leagueId, leagueName, isDefault) {
   const body = $("#standings-body");
   $("#standings-title").textContent = "Classificação";
   $("#standings-sub").textContent = isDefault ? `${leagueName} (último encerrado)` : leagueName;
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
-    let matches = isDefault && cachedMatches === null ? await odFetch(`leagues/${leagueId}/matches`) : (cachedMatches || await odFetch(`leagues/${leagueId}/matches`));
+    let matches = (cachedMatches && !isDefault) ? cachedMatches : await odFetch(`leagues/${leagueId}/matches`);
     matches = await enrichTeamNames(matches);
-    const table = {};
-    matches.forEach((m) => {
-      const rId = m.radiant_team_id, dId = m.dire_team_id;
-      if (rId == null || dId == null) return;
-      table[rId] = table[rId] || { name: m.radiant_name || `Time ${rId}`, w: 0, l: 0 };
-      table[dId] = table[dId] || { name: m.dire_name || `Time ${dId}`, w: 0, l: 0 };
-      if (m.radiant_win) { table[rId].w++; table[dId].l++; } else { table[dId].w++; table[rId].l++; }
-    });
-    const rows = Object.values(table).sort((a, b) => b.w - a.w || a.l - b.l);
+    const rows = computeStandingsFromMatches(matches);
     if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
-    body.innerHTML = rows.map((r, i) => `<tr><td>${i + 1}</td><td>${r.name}</td><td class="numeric">${r.w}</td><td class="numeric">${r.l}</td></tr>`).join("");
+    body.innerHTML = rows.map((r, i) =>
+      `<tr><td>${i + 1}</td><td>${r.name}</td><td class="numeric">${r.seriesW}-${r.seriesL}</td><td class="numeric">${r.mapsW}-${r.mapsL}</td></tr>`
+    ).join("");
+    if (!rows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
+    body.innerHTML = rows.map((r, i) =>
+      `<tr><td>${i + 1}</td><td>${r.name}</td><td class="numeric">${r.seriesW}-${r.seriesL}</td><td class="numeric">${r.mapsW}-${r.mapsL}</td></tr>`
+    ).join("");
   } catch { body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao calcular classificação.</td></tr>`; }
 }
 
@@ -349,10 +406,11 @@ async function loadRecentResults() {
     const lastName = leagueNameById(bestLeagueId);
     label.textContent = `— ${lastName}`;
 
-    let matches = proMatches.filter((m) => String(m.leagueid) === String(bestLeagueId)).slice(0, 10);
-    matches = await enrichTeamNames(matches.map((m) => ({ ...m, radiant_team_id: m.radiant_team_id, dire_team_id: m.dire_team_id })));
-    box.innerHTML = `<div class="match-grid">${matches.map(renderResultCard).join("")}</div>`;
-    box.querySelectorAll("[data-match]").forEach((el) => el.addEventListener("click", () => openMatch(el.dataset.match)));
+    let matches = proMatches.filter((m) => String(m.leagueid) === String(bestLeagueId)).slice(0, 30);
+    matches = await enrichTeamNames(matches);
+    const series = groupIntoSeries(matches).sort((a, b) => b.startTime - a.startTime).slice(0, 8);
+    box.innerHTML = `<div class="match-grid">${series.map(renderSeriesCard).join("")}</div>`;
+    attachSeriesClicks(box, series);
 
     // guarda o id pra classificação padrão usar o mesmo torneio
     window.__lastFinishedLeagueId = bestLeagueId;
@@ -371,6 +429,28 @@ async function loadDefaultStandings() {
     $("#standings-body").innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   }
 }
+
+/* ---------- detalhe da série (modal) ---------- */
+function openSeries(s) {
+  $("#series-modal").classList.remove("hidden");
+  $("#series-title").textContent = `${s.teamAName} ${s.scoreA} - ${s.scoreB} ${s.teamBName}`;
+  const box = $("#series-games");
+  box.innerHTML = s.games.map((g, i) => {
+    const winnerName = g.radiant_win ? (g.radiant_name || s.teamAName) : (g.dire_name || s.teamBName);
+    const date = new Date(g.start_time * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    return `<div class="match-card" data-game="${g.match_id}">
+      <div class="match-teams">
+        <span class="team-name">Jogo ${i + 1}</span>
+        <span class="score">${g.radiant_score ?? "-"} - ${g.dire_score ?? "-"}</span>
+        <span class="team-name" style="text-align:right">${winnerName} venceu</span>
+      </div>
+      <div class="match-meta"><span>${date}</span><span>${Math.round(g.duration / 60)} min</span></div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll("[data-game]").forEach((el) => el.addEventListener("click", () => openMatch(el.dataset.game)));
+}
+$("#btn-close-series").addEventListener("click", () => $("#series-modal").classList.add("hidden"));
+$("#series-modal-backdrop").addEventListener("click", () => $("#series-modal").classList.add("hidden"));
 
 /* ---------- detalhe da partida (modal) ---------- */
 async function openMatch(matchId) {

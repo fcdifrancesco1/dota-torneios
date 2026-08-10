@@ -72,11 +72,21 @@
       <h2 id="standings-title">Classificação</h2>
       <div id="standings-sub" class="section-sub"></div>
       <table id="standings-table">
-        <thead><tr><th>#</th><th>Time</th><th>V</th><th>D</th></tr></thead>
+        <thead><tr><th>#</th><th>Time</th><th>Séries</th><th>Mapas</th></tr></thead>
         <tbody id="standings-body"></tbody>
       </table>
     </aside>
 
+  </div>
+
+  <!-- MODAL: detalhe da série -->
+  <div id="series-modal" class="hidden">
+    <div id="series-modal-backdrop"></div>
+    <div id="series-modal-sheet">
+      <button id="btn-close-series">✕</button>
+      <h2 id="series-title"></h2>
+      <div id="series-games"></div>
+    </div>
   </div>
 
   <!-- MODAL: detalhe da partida -->
