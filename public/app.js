@@ -645,7 +645,7 @@ async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
-  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  body.innerHTML = `<tr><td colspan="3" class="empty-state">Carregando...</td></tr>`;
   try {
     const res = await fetch(`/api/leaderboard?division=${division}&_=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
@@ -657,7 +657,7 @@ async function loadRanking(division) {
       } else if (data && data.error) {
         detail = data.error;
       }
-      body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Não foi possível carregar o ranking agora.<br>${detail}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="3" class="empty-state" style="white-space:normal">Não foi possível carregar o ranking agora.<br>${detail}</td></tr>`;
       return;
     }
     if (data.time_posted) {
@@ -670,13 +670,12 @@ async function loadRanking(division) {
       return `<tr>
         <td>${p.rank}</td>
         <td>${tag}${p.name || "—"}</td>
-        <td class="numeric">${p.solo_mmr ?? "-"}</td>
         <td><div class="player-country">${flag}</div></td>
       </tr>`;
     }).join("");
   } catch {
     if (requestId !== window.__rankingRequestId) return;
-    body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao carregar o ranking.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="3" class="empty-state">Erro ao carregar o ranking.</td></tr>`;
   }
 }
 
