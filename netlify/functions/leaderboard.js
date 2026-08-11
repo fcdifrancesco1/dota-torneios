@@ -34,7 +34,7 @@ exports.handler = async (event) => {
     try { result = await tryDivision(name); }
     catch (err) { result = { name, error: String(err) }; }
     attempts.push(result);
-    if (result.data && result.data.success === 1 && result.data.leaderboard) {
+    if (result.data && result.data.leaderboard) {
       // IMPORTANTE: sempre statusCode 200 — um 502 aqui faz o CDN do Netlify
       // cair no modo "stale-if-error" e servir uma resposta antiga em cache.
       return { statusCode: 200, headers: noCacheHeaders, body: JSON.stringify({ ok: true, ...result.data }) };
