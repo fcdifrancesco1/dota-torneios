@@ -26,6 +26,7 @@ async function tryDivision(name) {
 exports.handler = async (event) => {
   const requested = (event.queryStringParameters && event.queryStringParameters.division) || "europe";
   const candidates = CANDIDATES[requested] || [requested];
+  const noCacheHeaders = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
   const attempts = [];
   for (const name of candidates) {
@@ -34,25 +35,16 @@ exports.handler = async (event) => {
     catch (err) { result = { name, error: String(err) }; }
     attempts.push(result);
     if (result.data && result.data.success === 1 && result.data.leaderboard) {
-      return {
-        statusCode: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-store", // nunca cachear — a rota /api/* já causou um cache travado uma vez
-        },
-        body: JSON.stringify(result.data),
-      };
+      // IMPORTANTE: sempre statusCode 200 — um 502 aqui faz o CDN do Netlify
+      // cair no modo "stale-if-error" e servir uma resposta antiga em cache.
+      return { statusCode: 200, headers: noCacheHeaders, body: JSON.stringify({ ok: true, ...result.data }) };
     }
   }
 
-  // nenhuma variação funcionou — devolve diagnóstico completo pra investigar
+  // nenhuma variação funcionou — devolve diagnóstico completo, ainda como 200
   return {
-    statusCode: 502,
-    headers: { "Cache-Control": "no-store" },
-    body: JSON.stringify({
-      error: "Nenhuma variação de nome de divisão funcionou",
-      requested,
-      attempts,
-    }),
+    statusCode: 200,
+    headers: noCacheHeaders,
+    body: JSON.stringify({ ok: false, error: "Nenhuma variação de nome de divisão funcionou", requested, attempts }),
   };
 };
