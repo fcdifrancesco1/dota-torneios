@@ -161,10 +161,33 @@ function leagueNameById(id) {
   const l = (allLeagues || []).find((x) => String(x.leagueid) === String(id));
   return l ? l.name : `Torneio #${id}`;
 }
+function isTopTierLeague(id) {
+  const l = (allLeagues || []).find((x) => String(x.leagueid) === String(id));
+  const tier = l && l.tier ? String(l.tier).toLowerCase() : "";
+  return tier === "premium" || tier === "professional";
+}
 
-function renderRecent() {
-  const recent = lsGet("dota:recentLeagues", []);
+/* ---------- "Recentes": últimos torneios premium/profissionais realmente disputados ---------- */
+async function computeRecentlyPlayedLeagues() {
+  const cached = lsGet("dota:recentlyPlayed:v2", null);
+  if (cached && Date.now() - cached.ts < 30 * 60 * 1000) return cached.data;
+  try {
+    const proMatches = await odFetch("proMatches");
+    await ensureLeaguesLoaded().catch(() => {});
+    const seen = new Set();
+    const ordered = [];
+    (proMatches || []).forEach((m) => {
+      if (!seen.has(m.leagueid) && isTopTierLeague(m.leagueid)) { seen.add(m.leagueid); ordered.push(m.leagueid); }
+    });
+    const data = ordered.slice(0, 5).map((id) => ({ leagueid: id, name: leagueNameById(id) }));
+    lsSet("dota:recentlyPlayed:v2", { ts: Date.now(), data });
+    return data;
+  } catch { return cached ? cached.data : []; }
+}
+async function renderRecent() {
   const box = $("#league-recent");
+  box.innerHTML = `<span class="section-sub">Carregando recentes...</span>`;
+  const recent = await computeRecentlyPlayedLeagues();
   if (!recent.length) { box.innerHTML = ""; return; }
   box.innerHTML = "Recentes: " + recent.map((l, i) => `<button data-recent="${i}">${l.name}</button>`).join("");
   box.querySelectorAll("button").forEach((btn) => {
@@ -173,10 +196,11 @@ function renderRecent() {
 }
 function renderLeagueResults(list) {
   const ul = $("#league-results");
-  if (!list.length) { ul.innerHTML = `<div class="empty-state">Nenhum torneio encontrado.</div>`; return; }
+  if (!list.length) { ul.innerHTML = `<div class="empty-state">Nenhum torneio encontrado.</div>`; ul.classList.add("open"); return; }
   ul.innerHTML = list.slice(0, 40).map((l) =>
     `<li data-id="${l.leagueid}"><span>${l.name}</span><span class="league-tier">${(l.tier || "?").toUpperCase()}</span></li>`
   ).join("");
+  ul.classList.add("open");
   ul.querySelectorAll("li").forEach((li) => {
     li.addEventListener("click", () => {
       const league = list.find((l) => String(l.leagueid) === li.dataset.id);
@@ -188,13 +212,16 @@ let searchDebounce = null;
 $("#league-search").addEventListener("input", (e) => {
   clearTimeout(searchDebounce);
   const q = e.target.value.trim().toLowerCase();
+  if (q.length < 2) { $("#league-results").innerHTML = ""; $("#league-results").classList.remove("open"); return; }
   searchDebounce = setTimeout(async () => {
-    if (q.length < 2) { $("#league-results").innerHTML = ""; return; }
     try {
       const leagues = await ensureLeaguesLoaded();
       renderLeagueResults(leagues.filter((l) => l.name && l.name.toLowerCase().includes(q)));
     } catch { toast("Erro ao buscar torneios."); }
   }, 300);
+});
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".search-wrap")) { $("#league-results").classList.remove("open"); }
 });
 
 /* ---------- seleção de torneio ---------- */
@@ -203,9 +230,9 @@ function selectLeague(league) {
   currentLeague = { leagueid: league.leagueid, name: league.name };
   cachedMatches = null;
 
-  const recent = lsGet("dota:recentLeagues", []).filter((l) => l.leagueid !== currentLeague.leagueid);
-  recent.unshift(currentLeague);
-  lsSet("dota:recentLeagues", recent.slice(0, 5));
+  $("#league-search").value = "";
+  $("#league-results").innerHTML = "";
+  $("#league-results").classList.remove("open");
 
   $("#league-title").textContent = currentLeague.name;
   $("#center-default").classList.add("hidden");
@@ -495,36 +522,48 @@ async function loadUpcoming() {
   const box = $("#upcoming-list");
   const label = $("#next-league-name");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
+
+  let liveHtml = "";
+  let liveGames = [];
+  try {
+    const liveData = await liveFetch(); // sem league_id = todas as partidas de liga ao vivo agora
+    liveGames = (liveData && liveData.result && liveData.result.games) || [];
+    if (liveGames.length) {
+      const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+      liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
+    }
+  } catch { /* segue sem a seção de ao vivo se essa chamada falhar */ }
+
+  let scheduledHtml = "";
   try {
     const data = await scheduleFetch(21);
     const games = (data && data.result && data.result.games) || [];
-    if (!games.length) {
-      box.innerHTML = `<div class="empty-state">Nenhuma partida agendada encontrada nos próximos dias.</div>`;
-      label.textContent = "";
-      return;
+    if (games.length) {
+      await ensureLeaguesLoaded().catch(() => {});
+      const byLeague = {};
+      games.forEach((g) => { (byLeague[g.league_id] = byLeague[g.league_id] || []).push(g); });
+      let bestLeagueId = null, bestTime = Infinity;
+      Object.entries(byLeague).forEach(([lid, list]) => {
+        if (!isTopTierLeague(lid)) return;
+        const min = Math.min(...list.map((g) => g.starttime || Infinity));
+        if (min < bestTime) { bestTime = min; bestLeagueId = lid; }
+      });
+      if (bestLeagueId) {
+        label.textContent = `— ${leagueNameById(bestLeagueId)}`;
+        const nextGames = byLeague[bestLeagueId].sort((a, b) => (a.starttime || 0) - (b.starttime || 0)).slice(0, 10);
+        const cardsHtml = await Promise.all(nextGames.map(renderUpcomingCard));
+        scheduledHtml = `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml.join("")}</div></div>`;
+      }
     }
-    // agrupa por torneio e pega o grupo com o jogo mais próximo
-    const byLeague = {};
-    games.forEach((g) => {
-      const lid = g.league_id;
-      byLeague[lid] = byLeague[lid] || [];
-      byLeague[lid].push(g);
-    });
-    let bestLeagueId = null, bestTime = Infinity;
-    Object.entries(byLeague).forEach(([lid, list]) => {
-      const min = Math.min(...list.map((g) => g.starttime || Infinity));
-      if (min < bestTime) { bestTime = min; bestLeagueId = lid; }
-    });
-    await ensureLeaguesLoaded().catch(() => {});
-    const nextName = leagueNameById(bestLeagueId);
-    label.textContent = `— ${nextName}`;
+  } catch { /* a agenda oficial da Valve é instável — segue só com o que tiver */ }
 
-    const nextGames = byLeague[bestLeagueId].sort((a, b) => (a.starttime || 0) - (b.starttime || 0)).slice(0, 10);
-    const cardsHtml = await Promise.all(nextGames.map(renderUpcomingCard));
-    box.innerHTML = `<div class="match-grid">${cardsHtml.join("")}</div>`;
-  } catch {
-    box.innerHTML = `<div class="empty-state">Não foi possível carregar as próximas partidas.</div>`;
+  if (!liveHtml && !scheduledHtml) {
+    box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo ou agendada encontrada agora.</div>`;
+    label.textContent = "";
+    return;
   }
+  box.innerHTML = liveHtml + scheduledHtml;
+  box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
 }
 async function renderUpcomingCard(g) {
   const cache = lsGet("dota:teamNames", {});
@@ -553,14 +592,15 @@ async function loadRecentResults() {
   try {
     const proMatches = await odFetch("proMatches");
     if (!proMatches || !proMatches.length) { box.innerHTML = `<div class="empty-state">Nenhum resultado recente encontrado.</div>`; return; }
+    await ensureLeaguesLoaded().catch(() => {});
 
-    // torneio mais frequente entre as partidas mais recentes = "último torneio encerrado"
-    const recentSlice = proMatches.slice(0, 20);
+    // torneio premium/profissional mais frequente entre as partidas mais recentes = "último torneio encerrado"
+    const recentSlice = proMatches.slice(0, 40).filter((m) => isTopTierLeague(m.leagueid));
+    if (!recentSlice.length) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
     const freq = {};
     recentSlice.forEach((m) => { freq[m.leagueid] = (freq[m.leagueid] || 0) + 1; });
     const bestLeagueId = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
 
-    await ensureLeaguesLoaded().catch(() => {});
     const lastName = leagueNameById(bestLeagueId);
     label.textContent = `— ${lastName}`;
 
