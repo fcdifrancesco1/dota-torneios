@@ -38,7 +38,10 @@ async function stratzQuery(query, variables) {
   });
   const json = await res.json();
   if (!res.ok || json.errors) {
-    const msg = (json.errors && json.errors.map((e) => e.message).join("; ")) || json.error || `Stratz: ${res.status}`;
+    let msg = (json.errors && json.errors.map((e) => e.message).join("; ")) || json.error || `Stratz: ${res.status}`;
+    if (json.stratzStatus != null || json.preview) {
+      msg += ` (status STRATZ: ${json.stratzStatus} — prévia: ${json.preview || ""})`;
+    }
     throw new Error(msg);
   }
   return json.data;
@@ -628,7 +631,9 @@ async function loadUpcoming() {
   let liveGames = [];
   try {
     const liveData = await liveFetch(); // sem league_id = todas as partidas de liga ao vivo agora
-    liveGames = (liveData && liveData.result && liveData.result.games) || [];
+    const allLive = (liveData && liveData.result && liveData.result.games) || [];
+    await ensureLeaguesLoaded().catch(() => {});
+    liveGames = allLive.filter((g) => isTopTierLeague(g.league_id)); // só torneios premium/profissionais
     if (liveGames.length) {
       const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
       liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
