@@ -648,8 +648,9 @@ async function loadRanking(division) {
   try {
     const res = await fetch(`/api/leaderboard?division=${division}`);
     const data = await res.json();
-    if (!data || data.success === 0 || !data.leaderboard) {
-      body.innerHTML = `<tr><td colspan="4" class="empty-state">Não foi possível carregar o ranking agora.</td></tr>`;
+    if (!res.ok || !data || data.success === 0 || !data.leaderboard) {
+      const detail = (data && (data.error || data.preview)) ? ` (${data.error || ""} ${data.preview || ""})` : "";
+      body.innerHTML = `<tr><td colspan="4" class="empty-state">Não foi possível carregar o ranking agora.${detail}</td></tr>`;
       return;
     }
     if (data.time_posted) {
