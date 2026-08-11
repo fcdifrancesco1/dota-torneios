@@ -642,12 +642,14 @@ $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click"
 }));
 
 async function loadRanking(division) {
+  const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
-    const res = await fetch(`/api/leaderboard?division=${division}`);
+    const res = await fetch(`/api/leaderboard?division=${division}&_=${Date.now()}`);
     const data = await res.json();
+    if (requestId !== window.__rankingRequestId) return; // uma região mais nova já foi clicada, descarta essa resposta atrasada
     if (!res.ok || !data || data.success === 0 || !data.leaderboard) {
       let detail = "";
       if (data && data.attempts) {
@@ -673,6 +675,7 @@ async function loadRanking(division) {
       </tr>`;
     }).join("");
   } catch {
+    if (requestId !== window.__rankingRequestId) return;
     body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao carregar o ranking.</td></tr>`;
   }
 }
