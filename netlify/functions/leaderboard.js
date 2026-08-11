@@ -13,8 +13,21 @@ exports.handler = async (event) => {
   const url = `https://www.dota2.com/webapi/ILeaderboard/GetDivisionLeaderboard/v0001?division=${division}`;
 
   try {
-    const resp = await fetch(url);
-    const data = await resp.json();
+    const resp = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+      },
+    });
+    const text = await resp.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch {
+      return {
+        statusCode: 502,
+        body: JSON.stringify({ error: "Resposta da Valve não é JSON", status: resp.status, preview: text.slice(0, 300) }),
+      };
+    }
     return {
       statusCode: 200,
       headers: {
