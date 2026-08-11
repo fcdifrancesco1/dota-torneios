@@ -3,10 +3,10 @@
 // Divisões válidas (nome pedido pelo front-end): americas | europe | china | se_asia
 
 const CANDIDATES = {
-  americas: ["americas", "na", "us_east", "us_west"],
-  europe: ["europe", "eu_west", "eu", "europe_west", "eu_east"],
-  china: ["china", "cn"],
-  se_asia: ["se_asia", "sea", "seasia", "southeast_asia", "asia"],
+  americas: ["americas"],
+  europe: ["europe"],
+  china: ["china"],
+  se_asia: ["se_asia"],
 };
 
 const HEADERS = {
@@ -15,7 +15,7 @@ const HEADERS = {
 };
 
 async function tryDivision(name) {
-  const url = `https://www.dota2.com/webapi/ILeaderboard/GetDivisionLeaderboard/v0001?division=${name}`;
+  const url = `https://www.dota2.com/webapi/ILeaderboard/GetDivisionLeaderboard/v0001?division=${name}&leaderboard=0`;
   const resp = await fetch(url, { headers: HEADERS });
   const text = await resp.text();
   let data = null;
