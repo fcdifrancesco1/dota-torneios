@@ -84,6 +84,49 @@ async function enrichTeamNames(matches) {
   });
   return matches;
 }
+
+/* ---------- logos dos times (cache) ---------- */
+async function ensureTeamLogos(teamIds) {
+  const cache = lsGet("dota:teamLogos", {});
+  const ids = [...new Set(teamIds.filter((id) => id != null))];
+  const missing = ids.filter((id) => !(id in cache));
+  if (missing.length) {
+    await Promise.all(missing.map(async (id) => {
+      try { const t = await odFetch(`teams/${id}`); cache[id] = (t && t.logo_url) || null; }
+      catch { cache[id] = null; }
+    }));
+    lsSet("dota:teamLogos", cache);
+  }
+  return cache;
+}
+function teamLogoImg(logoUrl, teamName) {
+  if (!logoUrl) return `<span class="team-logo team-logo-empty"></span>`;
+  return `<img class="team-logo" src="${logoUrl}" alt="${teamName || ""}">`;
+}
+
+/* ---------- agrupar cards de série por data ---------- */
+function groupSeriesByDate(seriesList) {
+  const groups = [];
+  const byKey = {};
+  seriesList.forEach((s) => {
+    const d = new Date(s.startTime * 1000);
+    const key = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
+    if (!byKey[key]) { byKey[key] = { label: key, items: [] }; groups.push(byKey[key]); }
+    byKey[key].items.push(s);
+  });
+  return groups;
+}
+async function renderSeriesGrouped(seriesList) {
+  const teamIds = seriesList.flatMap((s) => [s.teamAId, s.teamBId]);
+  await ensureTeamLogos(teamIds);
+  const logos = lsGet("dota:teamLogos", {});
+  const groups = groupSeriesByDate(seriesList);
+  return groups.map((g) => `
+    <div class="date-group">
+      <div class="date-group-header">${g.label}</div>
+      <div class="match-grid">${g.items.map((s, i) => renderSeriesCard(s, seriesList.indexOf(s), logos)).join("")}</div>
+    </div>`).join("");
+}
 async function enrichPlayerNames(players) {
   const cache = lsGet("dota:playerNames", {});
   const missing = players.map((p) => p.account_id).filter((id) => id != null && !(id in cache));
@@ -332,21 +375,28 @@ async function loadResults() {
     }
     if (!cachedMatches.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida finalizada ainda.</div>`; return; }
     const series = groupIntoSeries(cachedMatches).sort((a, b) => b.startTime - a.startTime);
-    box.innerHTML = `<div class="match-grid">${series.map(renderSeriesCard).join("")}</div>`;
+    box.innerHTML = await renderSeriesGrouped(series);
     attachSeriesClicks(box, series);
   } catch { box.innerHTML = `<div class="empty-state">Erro ao carregar resultados.</div>`; }
 }
-function renderSeriesCard(s, idx) {
+function renderSeriesCard(s, idx, logos) {
   const aWon = s.decided && s.scoreA > s.scoreB;
   const bWon = s.decided && s.scoreB > s.scoreA;
-  const date = new Date(s.startTime * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const logoA = logos ? logos[s.teamAId] : null;
+  const logoB = logos ? logos[s.teamBId] : null;
   return `<div class="match-card" data-series="${idx}">
       <div class="match-teams">
-        <span class="team-name ${aWon ? "winner" : ""}">${s.teamAName}</span>
+        <div class="team-side">
+          ${teamLogoImg(logoA, s.teamAName)}
+          <span class="team-name ${aWon ? "winner" : ""}">${s.teamAName}</span>
+        </div>
         <span class="score">${s.scoreA} - ${s.scoreB}</span>
-        <span class="team-name ${bWon ? "winner" : ""}" style="text-align:right">${s.teamBName}</span>
+        <div class="team-side team-side-right">
+          <span class="team-name ${bWon ? "winner" : ""}">${s.teamBName}</span>
+          ${teamLogoImg(logoB, s.teamBName)}
+        </div>
       </div>
-      <div class="match-meta"><span>${date}</span><span>${s.games.length} jogo${s.games.length > 1 ? "s" : ""}${s.decided ? "" : " · em andamento"}</span></div>
+      <div class="match-meta"><span>${s.games.length} jogo${s.games.length > 1 ? "s" : ""}${s.decided ? "" : " · em andamento"}</span></div>
     </div>`;
 }
 function attachSeriesClicks(container, seriesList) {
@@ -517,7 +567,7 @@ async function loadRecentResults() {
     let matches = proMatches.filter((m) => String(m.leagueid) === String(bestLeagueId)).slice(0, 30);
     matches = await enrichTeamNames(matches);
     const series = groupIntoSeries(matches).sort((a, b) => b.startTime - a.startTime).slice(0, 8);
-    box.innerHTML = `<div class="match-grid">${series.map(renderSeriesCard).join("")}</div>`;
+    box.innerHTML = await renderSeriesGrouped(series);
     attachSeriesClicks(box, series);
 
     // guarda o id pra classificação padrão usar o mesmo torneio
