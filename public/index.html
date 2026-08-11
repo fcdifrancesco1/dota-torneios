@@ -26,6 +26,7 @@
   <nav id="main-tabs">
     <button class="main-tab-btn active" data-view="torneios">Torneios</button>
     <button class="main-tab-btn" data-view="ranking">Ranking MMR</button>
+    <button class="main-tab-btn" data-view="heroes">Heróis</button>
   </nav>
 
   <div id="layout">
@@ -96,9 +97,25 @@
     </nav>
     <div id="ranking-updated" class="section-sub"></div>
     <table id="ranking-table">
-      <thead><tr><th>#</th><th>Jogador</th><th>País</th></tr></thead>
+      <thead><tr><th>#</th><th>Jogador</th><th>Vitórias</th><th>Posição</th><th>Heróis mais jogados</th></tr></thead>
       <tbody id="ranking-body"></tbody>
     </table>
+  </section>
+
+  <!-- TELA: HERÓIS (build por posição via STRATZ) -->
+  <section id="view-heroes" class="hidden">
+    <div id="heroes-layout">
+      <aside id="heroes-list-wrap">
+        <div class="search-box">
+          <label for="hero-search">Buscar herói</label>
+          <input id="hero-search" type="text" placeholder="ex: Anti-Mage..." autocomplete="off" />
+        </div>
+        <div id="heroes-grid"></div>
+      </aside>
+      <main id="hero-detail">
+        <div class="empty-state">Selecione um herói pra ver a posição mais jogada e a build de itens.</div>
+      </main>
+    </div>
   </section>
 
   <!-- MODAL: detalhe da série -->

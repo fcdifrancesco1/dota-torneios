@@ -30,6 +30,30 @@ async function scheduleFetch(days = 21) {
   if (!res.ok) throw new Error(`Schedule: ${res.status}`);
   return res.json();
 }
+async function stratzQuery(query, variables) {
+  const res = await fetch("/api/stratz", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.errors) {
+    const msg = (json.errors && json.errors.map((e) => e.message).join("; ")) || json.error || `Stratz: ${res.status}`;
+    throw new Error(msg);
+  }
+  return json.data;
+}
+
+// nomes amigáveis pras posições — usados no ranking, no explorador de heróis, etc.
+const POSITION_LABELS = {
+  POSITION_1: "Posição 1 (Carry)",
+  POSITION_2: "Posição 2 (Mid)",
+  POSITION_3: "Posição 3 (Offlane)",
+  POSITION_4: "Posição 4 (Suporte)",
+  POSITION_5: "Posição 5 (Suporte duro)",
+};
+const REGION_TO_STRATZ_DIVISION = { americas: "AMERICAS", europe: "EUROPE", china: "CHINA", se_asia: "SE_ASIA" };
+
 
 /* ---------- tema ---------- */
 (function initTheme() {
@@ -168,9 +192,29 @@ function isTopTierLeague(id) {
 }
 
 /* ---------- "Recentes": últimos torneios premium/profissionais realmente disputados ---------- */
+const STRATZ_TOP_TIERS = ["PROFESSIONAL", "MINOR", "MAJOR", "INTERNATIONAL", "DPC_LEAGUE", "DPC_LEAGUE_FINALS"];
+
 async function computeRecentlyPlayedLeagues() {
-  const cached = lsGet("dota:recentlyPlayed:v2", null);
+  const cached = lsGet("dota:recentlyPlayed:v3", null);
   if (cached && Date.now() - cached.ts < 30 * 60 * 1000) return cached.data;
+  try {
+    const data = await stratzQuery(
+      `query($tiers: [LeagueTier]) {
+        leagues(request: { tiers: $tiers, leagueEnded: true, take: 25 }) { id displayName endDateTime }
+      }`,
+      { tiers: STRATZ_TOP_TIERS }
+    );
+    const list = (data && data.leagues) || [];
+    if (!list.length) throw new Error("STRATZ sem torneios encerrados");
+    const sorted = list.filter((l) => l.endDateTime).sort((a, b) => b.endDateTime - a.endDateTime).slice(0, 5);
+    const out = sorted.map((l) => ({ leagueid: l.id, name: l.displayName }));
+    lsSet("dota:recentlyPlayed:v3", { ts: Date.now(), data: out });
+    return out;
+  } catch {
+    return computeRecentlyPlayedLeaguesFallback(); // STRATZ fora do ar/sem token — volta pro jeito antigo
+  }
+}
+async function computeRecentlyPlayedLeaguesFallback() {
   try {
     const proMatches = await odFetch("proMatches");
     await ensureLeaguesLoaded().catch(() => {});
@@ -179,10 +223,8 @@ async function computeRecentlyPlayedLeagues() {
     (proMatches || []).forEach((m) => {
       if (!seen.has(m.leagueid) && isTopTierLeague(m.leagueid)) { seen.add(m.leagueid); ordered.push(m.leagueid); }
     });
-    const data = ordered.slice(0, 5).map((id) => ({ leagueid: id, name: leagueNameById(id) }));
-    lsSet("dota:recentlyPlayed:v2", { ts: Date.now(), data });
-    return data;
-  } catch { return cached ? cached.data : []; }
+    return ordered.slice(0, 5).map((id) => ({ leagueid: id, name: leagueNameById(id) }));
+  } catch { return []; }
 }
 async function renderRecent() {
   const box = $("#league-recent");
@@ -401,7 +443,13 @@ async function loadResults() {
       cachedMatches.sort((a, b) => b.start_time - a.start_time);
     }
     if (!cachedMatches.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida finalizada ainda.</div>`; return; }
-    const series = groupIntoSeries(cachedMatches).sort((a, b) => b.startTime - a.startTime);
+    let series;
+    try {
+      series = attachOpenDotaGames(await fetchStratzSeriesForLeague(currentLeague.leagueid), cachedMatches);
+    } catch {
+      series = groupIntoSeries(cachedMatches); // fallback: nosso agrupamento por conectividade
+    }
+    series.sort((a, b) => b.startTime - a.startTime);
     box.innerHTML = await renderSeriesGrouped(series);
     attachSeriesClicks(box, series);
   } catch { box.innerHTML = `<div class="empty-state">Erro ao carregar resultados.</div>`; }
@@ -432,9 +480,55 @@ function attachSeriesClicks(container, seriesList) {
   });
 }
 
+/* ---------- séries de um torneio via STRATZ (com fallback pro agrupamento antigo) ---------- */
+async function fetchStratzSeriesForLeague(leagueId) {
+  const data = await stratzQuery(
+    `query($id: Int!) {
+      league(id: $id) {
+        series {
+          id teamOneWinCount teamTwoWinCount winningTeamId lastMatchDateTime
+          teamOne { id name logo }
+          teamTwo { id name logo }
+          matches { id }
+        }
+      }
+    }`,
+    { id: Number(leagueId) }
+  );
+  const raw = (data && data.league && data.league.series) || [];
+  if (!raw.length) throw new Error("STRATZ ainda não tem séries pra esse torneio");
+  const logos = lsGet("dota:teamLogos", {});
+  const series = raw.map((s) => {
+    if (s.teamOne && s.teamOne.logo) logos[s.teamOne.id] = s.teamOne.logo;
+    if (s.teamTwo && s.teamTwo.logo) logos[s.teamTwo.id] = s.teamTwo.logo;
+    return {
+      id: s.id,
+      teamAId: s.teamOne && s.teamOne.id,
+      teamBId: s.teamTwo && s.teamTwo.id,
+      teamAName: (s.teamOne && s.teamOne.name) || `Time ${s.teamOne && s.teamOne.id}`,
+      teamBName: (s.teamTwo && s.teamTwo.name) || `Time ${s.teamTwo && s.teamTwo.id}`,
+      scoreA: s.teamOneWinCount || 0,
+      scoreB: s.teamTwoWinCount || 0,
+      decided: s.winningTeamId != null,
+      startTime: s.lastMatchDateTime || 0,
+      gameIds: (s.matches || []).map((m) => String(m.id)),
+      games: [], // preenchido sob demanda com attachOpenDotaGames()
+    };
+  });
+  lsSet("dota:teamLogos", logos);
+  return series;
+}
+function attachOpenDotaGames(series, openDotaMatches) {
+  const byId = {};
+  (openDotaMatches || []).forEach((m) => (byId[String(m.match_id)] = m));
+  series.forEach((s) => {
+    s.games = (s.gameIds || []).map((id) => byId[id]).filter(Boolean).sort((a, b) => a.start_time - b.start_time);
+  });
+  return series;
+}
+
 /* ---------- classificação (coluna direita): com grupos inferidos + cores ---------- */
-function computeStandingsFromMatches(matches) {
-  const series = groupIntoSeries(matches);
+function computeStandingsFromSeries(series) {
   const table = {};
   const ensure = (id, name) => (table[id] = table[id] || { id: String(id), name, seriesW: 0, seriesL: 0, mapsW: 0, mapsL: 0 });
   series.forEach((s) => {
@@ -452,12 +546,13 @@ function computeStandingsFromMatches(matches) {
 }
 
 // times que nunca se enfrentaram não podem estar no mesmo grupo/chave —
-// usamos isso pra separar grupos automaticamente enquanto eles não se cruzam nos playoffs.
-function computeGroupClusters(matches) {
+// usamos isso pra separar grupos automaticamente enquanto eles não se cruzam nos playoffs
+// (fallback pra quando o STRATZ não tem a chave/grupo oficial cadastrada — nem sempre tem).
+function computeGroupClustersFromSeries(series) {
   const parent = {};
   const find = (x) => { if (parent[x] === undefined) parent[x] = x; return parent[x] === x ? x : (parent[x] = find(parent[x])); };
   const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-  groupIntoSeries(matches).forEach((s) => {
+  series.forEach((s) => {
     if (s.teamAId == null || s.teamBId == null) return;
     const a = String(s.teamAId), b = String(s.teamBId);
     find(a); find(b); union(a, b);
@@ -467,10 +562,10 @@ function computeGroupClusters(matches) {
   return Object.values(clusters);
 }
 
-function renderStandingsTable(matches) {
+function renderStandingsTable(series) {
   const body = $("#standings-body");
-  const clusters = computeGroupClusters(matches);
-  const allRows = computeStandingsFromMatches(matches);
+  const clusters = computeGroupClustersFromSeries(series);
+  const allRows = computeStandingsFromSeries(series);
   const byId = {}; allRows.forEach((r) => (byId[r.id] = r));
 
   // só vale a pena separar em grupos visuais se houver mais de 1 cluster com 2+ times
@@ -505,9 +600,15 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
   $("#standings-sub").textContent = isDefault ? `${leagueName} (último encerrado)` : leagueName;
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
-    let matches = (cachedMatches && !isDefault) ? cachedMatches : await odFetch(`leagues/${leagueId}/matches`);
-    matches = await enrichTeamNames(matches);
-    renderStandingsTable(matches);
+    let series;
+    try {
+      series = await fetchStratzSeriesForLeague(leagueId); // fonte principal: STRATZ já entrega a série pronta
+    } catch {
+      let matches = (cachedMatches && !isDefault) ? cachedMatches : await odFetch(`leagues/${leagueId}/matches`);
+      matches = await enrichTeamNames(matches);
+      series = groupIntoSeries(matches); // fallback: nosso agrupamento por conectividade
+    }
+    renderStandingsTable(series);
   } catch { body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao calcular classificação.</td></tr>`; }
 }
 
@@ -557,12 +658,34 @@ async function loadUpcoming() {
     }
   } catch { /* a agenda oficial da Valve é instável — segue só com o que tiver */ }
 
-  if (!liveHtml && !scheduledHtml) {
+  // complemento via STRATZ: nome do próximo torneio grande, mesmo sem agenda de partidas específica
+  let nextTournamentHtml = "";
+  if (!scheduledHtml) {
+    try {
+      const data = await stratzQuery(
+        `query($tiers: [LeagueTier]) {
+          leagues(request: { tiers: $tiers, isFutureLeague: true, take: 25 }) { id displayName startDateTime }
+        }`,
+        { tiers: STRATZ_TOP_TIERS }
+      );
+      const list = ((data && data.leagues) || []).filter((l) => l.startDateTime).sort((a, b) => a.startDateTime - b.startDateTime);
+      if (list.length) {
+        const next = list[0];
+        const when = new Date(next.startDateTime * 1000).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+        label.textContent = `— ${next.displayName}`;
+        nextTournamentHtml = `<div class="date-group"><div class="date-group-header">Próximo torneio</div>
+          <div class="match-card" style="cursor:default"><div class="match-teams"><span class="team-name">${next.displayName}</span></div>
+          <div class="match-meta"><span>Início previsto: ${when}</span></div></div></div>`;
+      }
+    } catch { /* STRATZ fora do ar — segue sem esse complemento */ }
+  }
+
+  if (!liveHtml && !scheduledHtml && !nextTournamentHtml) {
     box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo ou agendada encontrada agora.</div>`;
     label.textContent = "";
     return;
   }
-  box.innerHTML = liveHtml + scheduledHtml;
+  box.innerHTML = liveHtml + scheduledHtml + nextTournamentHtml;
   box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
 }
 async function renderUpcomingCard(g) {
@@ -590,29 +713,28 @@ async function loadRecentResults() {
   const label = $("#last-league-name");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
   try {
-    const proMatches = await odFetch("proMatches");
-    if (!proMatches || !proMatches.length) { box.innerHTML = `<div class="empty-state">Nenhum resultado recente encontrado.</div>`; return; }
-    await ensureLeaguesLoaded().catch(() => {});
+    const recent = await computeRecentlyPlayedLeagues();
+    if (!recent.length) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
+    const best = recent[0];
+    label.textContent = `— ${best.name}`;
 
-    // torneio premium/profissional mais frequente entre as partidas mais recentes = "último torneio encerrado"
-    const recentSlice = proMatches.slice(0, 40).filter((m) => isTopTierLeague(m.leagueid));
-    if (!recentSlice.length) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
-    const freq = {};
-    recentSlice.forEach((m) => { freq[m.leagueid] = (freq[m.leagueid] || 0) + 1; });
-    const bestLeagueId = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
-
-    const lastName = leagueNameById(bestLeagueId);
-    label.textContent = `— ${lastName}`;
-
-    let matches = proMatches.filter((m) => String(m.leagueid) === String(bestLeagueId)).slice(0, 30);
+    let matches = await odFetch(`leagues/${best.leagueid}/matches`);
     matches = await enrichTeamNames(matches);
-    const series = groupIntoSeries(matches).sort((a, b) => b.startTime - a.startTime).slice(0, 8);
+    matches.sort((a, b) => b.start_time - a.start_time);
+
+    let series;
+    try {
+      series = attachOpenDotaGames(await fetchStratzSeriesForLeague(best.leagueid), matches);
+    } catch {
+      series = groupIntoSeries(matches); // fallback: nosso agrupamento por conectividade
+    }
+    series = series.sort((a, b) => b.startTime - a.startTime).slice(0, 8);
     box.innerHTML = await renderSeriesGrouped(series);
     attachSeriesClicks(box, series);
 
     // guarda o id pra classificação padrão usar o mesmo torneio
-    window.__lastFinishedLeagueId = bestLeagueId;
-    window.__lastFinishedLeagueName = lastName;
+    window.__lastFinishedLeagueId = best.leagueid;
+    window.__lastFinishedLeagueName = best.name;
   } catch {
     box.innerHTML = `<div class="empty-state">Não foi possível carregar os últimos resultados.</div>`;
   }
@@ -721,9 +843,14 @@ function switchMainView(view) {
   $$(".main-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $("#layout").classList.toggle("hidden", view !== "torneios");
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
+  $("#view-heroes").classList.toggle("hidden", view !== "heroes");
   if (view === "ranking" && !window.__rankingLoadedOnce) {
     window.__rankingLoadedOnce = true;
     loadRanking("europe");
+  }
+  if (view === "heroes" && !window.__heroesLoadedOnce) {
+    window.__heroesLoadedOnce = true;
+    populateHeroesGrid();
   }
 }
 $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click", () => {
@@ -735,38 +862,143 @@ async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
-  body.innerHTML = `<tr><td colspan="3" class="empty-state">Carregando...</td></tr>`;
+  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
-    const res = await fetch(`/api/leaderboard?division=${division}&_=${Date.now()}`, { cache: "no-store" });
-    const data = await res.json();
-    if (requestId !== window.__rankingRequestId) return; // uma região mais nova já foi clicada, descarta essa resposta atrasada
-    if (!data || data.ok === false || !data.leaderboard) {
-      let detail = "";
-      if (data && data.attempts) {
-        detail = data.attempts.map((a) => `${a.name}: ${a.error || (a.data ? JSON.stringify(a.data) : a.preview)}`).join(" | ");
-      } else if (data && data.error) {
-        detail = data.error;
-      }
-      body.innerHTML = `<tr><td colspan="3" class="empty-state" style="white-space:normal">Não foi possível carregar o ranking agora.<br>${detail}</td></tr>`;
+    const stratzDivision = REGION_TO_STRATZ_DIVISION[division] || "EUROPE";
+    const data = await stratzQuery(
+      `query($div: LeaderboardDivision) {
+        leaderboard {
+          season(request: { leaderBoardDivision: $div }) {
+            playerCount
+            players {
+              rank steamAccountId winRate matchCount position
+              topHeroOne topHeroTwo topHeroThree
+              steamAccount { name avatar }
+            }
+          }
+        }
+      }`,
+      { div: stratzDivision }
+    );
+    if (requestId !== window.__rankingRequestId) return;
+    const players = (data && data.leaderboard && data.leaderboard.season && data.leaderboard.season.players) || [];
+    if (!players.length) {
+      body.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhum jogador encontrado pra essa região.</td></tr>`;
       return;
     }
-    if (data.time_posted) {
-      const dt = new Date(data.time_posted * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-      $("#ranking-updated").textContent = `Atualizado em ${dt} (a Valve atualiza de hora em hora)`;
-    }
-    body.innerHTML = data.leaderboard.map((p) => {
-      const flag = p.country ? `<img src="https://flagcdn.com/24x18/${String(p.country).toLowerCase()}.png" alt="${p.country}">` : "";
-      const tag = p.team_tag ? `<span class="team-tag">${p.team_tag}.</span>` : "";
+    const total = data.leaderboard.season.playerCount;
+    $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores rankeados nessa região — dados do STRATZ`;
+    body.innerHTML = players.map((p) => {
+      const acc = p.steamAccount || {};
+      const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="">` : `<span class="player-avatar player-avatar-empty"></span>`;
+      const winPct = p.matchCount ? Math.round((p.winRate || 0) * 100) : "-";
+      const heroes = [p.topHeroOne, p.topHeroTwo, p.topHeroThree].filter(Boolean)
+        .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}">`).join("");
+      const posLabel = p.position && POSITION_LABELS[p.position] ? POSITION_LABELS[p.position].replace(/ \(.+\)/, "") : "—";
       return `<tr>
         <td>${p.rank}</td>
-        <td>${tag}${p.name || "—"}</td>
-        <td><div class="player-country">${flag}</div></td>
+        <td><div class="player-country">${avatar}${acc.name || `Jogador ${p.steamAccountId}`}</div></td>
+        <td class="numeric">${winPct}${p.matchCount ? "%" : ""}</td>
+        <td>${posLabel}</td>
+        <td><div class="ranking-heroes">${heroes}</div></td>
       </tr>`;
     }).join("");
-  } catch {
+  } catch (err) {
     if (requestId !== window.__rankingRequestId) return;
-    body.innerHTML = `<tr><td colspan="3" class="empty-state">Erro ao carregar o ranking.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Erro ao carregar o ranking.<br>${err.message || ""}</td></tr>`;
   }
+}
+
+/* ---------- Heróis: posição mais jogada + build de item (STRATZ) ---------- */
+function populateHeroesGrid() {
+  const grid = $("#heroes-grid");
+  const ids = Object.keys(HEROES).sort((a, b) => heroName(a).localeCompare(heroName(b)));
+  grid.innerHTML = ids.map((id) =>
+    `<button class="hero-grid-icon" data-hero="${id}" title="${heroName(id)}"><img src="${heroImg(id)}" alt="${heroName(id)}"></button>`
+  ).join("");
+  grid.querySelectorAll(".hero-grid-icon").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      grid.querySelectorAll(".hero-grid-icon").forEach((b) => b.classList.toggle("active", b === btn));
+      loadHeroBuild(btn.dataset.hero);
+    });
+  });
+}
+$("#hero-search").addEventListener("input", (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  $("#heroes-grid").querySelectorAll(".hero-grid-icon").forEach((btn) => {
+    const match = !q || heroName(btn.dataset.hero).toLowerCase().includes(q);
+    btn.style.display = match ? "" : "none";
+  });
+});
+
+let heroBuildRequestId = 0;
+async function loadHeroBuild(heroId) {
+  const myId = ++heroBuildRequestId;
+  const panel = $("#hero-detail");
+  panel.innerHTML = `<div class="empty-state">Carregando ${heroName(heroId)}...</div>`;
+  try {
+    const data = await stratzQuery(
+      `query($heroId: Short!) {
+        heroStats {
+          stats(heroIds: [$heroId], groupByPosition: true) { position matchCount winCount }
+          itemStartingPurchase(heroId: $heroId) { itemId position matchCount winCount }
+          itemBootPurchase(heroId: $heroId) { itemId position matchCount winCount }
+          itemFullPurchase(heroId: $heroId) { itemId position time matchCount winCount }
+        }
+      }`,
+      { heroId: Number(heroId) }
+    );
+    if (myId !== heroBuildRequestId) return;
+    const hs = (data && data.heroStats) || {};
+    const stats = (hs.stats || []).filter((s) => s.position && s.position !== "UNKNOWN" && s.matchCount > 0)
+      .sort((a, b) => b.matchCount - a.matchCount);
+    if (!stats.length) {
+      panel.innerHTML = `<div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
+        <div class="empty-state">Sem dados de posição suficientes pra esse herói ainda.</div>`;
+      return;
+    }
+    renderHeroDetail(heroId, stats, hs, stats[0].position);
+  } catch (err) {
+    if (myId !== heroBuildRequestId) return;
+    panel.innerHTML = `<div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
+      <div class="empty-state" style="white-space:normal">Erro ao carregar dados do STRATZ.<br>${err.message || ""}</div>`;
+  }
+}
+function renderHeroDetail(heroId, stats, hs, selectedPosition) {
+  const panel = $("#hero-detail");
+  const tabsHtml = stats.map((s) => {
+    const pct = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
+    const label = (POSITION_LABELS[s.position] || s.position).replace(/ \(.+\)/, "");
+    return `<button class="position-tab-btn ${s.position === selectedPosition ? "active" : ""}" data-pos="${s.position}">
+      ${label}<span class="ptb-sub">${pct}% vitórias · ${s.matchCount.toLocaleString("pt-BR")} jogos</span>
+    </button>`;
+  }).join("");
+
+  const itemSection = (title, items, opts) => {
+    const filtered = items.filter((i) => i.position === selectedPosition).sort((a, b) => b.matchCount - a.matchCount);
+    const top = opts.sortByTime
+      ? filtered.slice(0, opts.take).sort((a, b) => (a.time || 0) - (b.time || 0))
+      : filtered.slice(0, opts.take);
+    if (!top.length) return "";
+    const chips = top.map((i) => {
+      const pct = i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0;
+      return `<div class="item-chip"><img src="${itemImg(i.itemId)}" alt=""><span class="item-badge">${pct}%</span></div>`;
+    }).join("");
+    return `<div class="item-build-section"><div class="team-block-title">${title}</div><div class="item-build-row">${chips}</div></div>`;
+  };
+
+  panel.innerHTML = `
+    <div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
+    <div id="hero-position-tabs">${tabsHtml}</div>
+    <div id="hero-build-content">
+      ${itemSection("Itens iniciais", hs.itemStartingPurchase || [], { take: 6, sortByTime: false })}
+      ${itemSection("Botas", hs.itemBootPurchase || [], { take: 3, sortByTime: false })}
+      ${itemSection("Build principal (ordem de compra)", hs.itemFullPurchase || [], { take: 8, sortByTime: true })}
+    </div>
+  `;
+  panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => renderHeroDetail(heroId, stats, hs, btn.dataset.pos));
+  });
 }
 
 /* ---------- boot ---------- */
