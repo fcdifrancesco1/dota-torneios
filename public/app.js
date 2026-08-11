@@ -3,6 +3,14 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 const CDN = "https://cdn.cloudflare.steamstatic.com";
 
+function skeletonCards(n = 3) {
+  return `<div class="match-grid">${Array.from({ length: n }, () => `<div class="skeleton skeleton-card"></div>`).join("")}</div>`;
+}
+function skeletonRows(n, cols) {
+  return Array.from({ length: n }, () =>
+    `<tr>${Array.from({ length: cols }, () => `<td><div class="skeleton skeleton-row"></div></td>`).join("")}</tr>`
+  ).join("");
+}
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg;
@@ -61,14 +69,15 @@ const REGION_TO_STRATZ_DIVISION = { americas: "AMERICAS", europe: "EUROPE", chin
 /* ---------- tema ---------- */
 (function initTheme() {
   const saved = localStorage.getItem("dota:theme");
-  document.documentElement.setAttribute("data-theme", saved || "dark");
-  $("#theme-toggle").textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+  const theme = saved || "dark";
+  document.documentElement.setAttribute("data-theme", theme);
+  $("#theme-toggle").setAttribute("aria-pressed", String(theme === "dark"));
 })();
 $("#theme-toggle").addEventListener("click", () => {
   const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem("dota:theme", next);
-  $("#theme-toggle").textContent = next === "dark" ? "☀️" : "🌙";
+  $("#theme-toggle").setAttribute("aria-pressed", String(next === "dark"));
 });
 
 /* ---------- constantes (heróis/itens), cache 24h ---------- */
@@ -234,16 +243,17 @@ async function renderRecent() {
   box.innerHTML = `<span class="section-sub">Carregando recentes...</span>`;
   const recent = await computeRecentlyPlayedLeagues();
   if (!recent.length) { box.innerHTML = ""; return; }
-  box.innerHTML = "Recentes: " + recent.map((l, i) => `<button data-recent="${i}">${l.name}</button>`).join("");
+  box.innerHTML = "Recentes: " + recent.map((l, i) => `<button type="button" data-recent="${i}">${l.name}</button>`).join("");
   box.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => selectLeague(recent[+btn.dataset.recent]));
   });
 }
 function renderLeagueResults(list) {
   const ul = $("#league-results");
+  $("#league-search").setAttribute("aria-expanded", "true");
   if (!list.length) { ul.innerHTML = `<div class="empty-state">Nenhum torneio encontrado.</div>`; ul.classList.add("open"); return; }
   ul.innerHTML = list.slice(0, 40).map((l) =>
-    `<li data-id="${l.leagueid}"><span>${l.name}</span><span class="league-tier">${(l.tier || "?").toUpperCase()}</span></li>`
+    `<li role="option" data-id="${l.leagueid}"><span>${l.name}</span><span class="league-tier">${(l.tier || "?").toUpperCase()}</span></li>`
   ).join("");
   ul.classList.add("open");
   ul.querySelectorAll("li").forEach((li) => {
@@ -257,7 +267,11 @@ let searchDebounce = null;
 $("#league-search").addEventListener("input", (e) => {
   clearTimeout(searchDebounce);
   const q = e.target.value.trim().toLowerCase();
-  if (q.length < 2) { $("#league-results").innerHTML = ""; $("#league-results").classList.remove("open"); return; }
+  if (q.length < 2) {
+    $("#league-results").innerHTML = ""; $("#league-results").classList.remove("open");
+    $("#league-search").setAttribute("aria-expanded", "false");
+    return;
+  }
   searchDebounce = setTimeout(async () => {
     try {
       const leagues = await ensureLeaguesLoaded();
@@ -266,7 +280,10 @@ $("#league-search").addEventListener("input", (e) => {
   }, 300);
 });
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".search-wrap")) { $("#league-results").classList.remove("open"); }
+  if (!e.target.closest(".search-wrap")) {
+    $("#league-results").classList.remove("open");
+    $("#league-search").setAttribute("aria-expanded", "false");
+  }
 });
 
 /* ---------- seleção de torneio ---------- */
@@ -296,7 +313,11 @@ $("#btn-change-league").addEventListener("click", () => {
 
 /* ---------- abas (torneio selecionado) ---------- */
 function switchTab(tab) {
-  $$(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  $$(".tab-btn").forEach((b) => {
+    const active = b.dataset.tab === tab;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-selected", String(active));
+  });
   $$(".tab-panel").forEach((p) => p.classList.add("hidden"));
   $(`#tab-${tab}`).classList.remove("hidden");
   if (tab === "live") { loadLive(); startLivePolling(); } else stopLivePolling();
@@ -342,7 +363,7 @@ function getSidePlayers(sb, side) {
   return s.players || s.player || [];
 }
 async function openLiveGame(g) {
-  $("#match-modal").classList.remove("hidden");
+  openModal($("#match-modal"));
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando...</div>`;
   try {
     const sb = g.scoreboard || {};
@@ -438,7 +459,7 @@ function groupIntoSeries(matches) {
 
 async function loadResults() {
   const box = $("#results-list");
-  box.innerHTML = `<div class="empty-state">Carregando...</div>`;
+  box.innerHTML = skeletonCards(4);
   try {
     if (!cachedMatches) {
       let matches = await odFetch(`leagues/${currentLeague.leagueid}/matches`);
@@ -601,7 +622,7 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
   const body = $("#standings-body");
   $("#standings-title").textContent = "Classificação";
   $("#standings-sub").textContent = isDefault ? `${leagueName} (último encerrado)` : leagueName;
-  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  body.innerHTML = skeletonRows(6, 4);
   try {
     let series;
     try {
@@ -625,7 +646,7 @@ async function loadCenterDefault() {
 async function loadUpcoming() {
   const box = $("#upcoming-list");
   const label = $("#next-league-name");
-  box.innerHTML = `<div class="empty-state">Carregando...</div>`;
+  box.innerHTML = skeletonCards(3);
 
   let liveHtml = "";
   let liveGames = [];
@@ -716,7 +737,7 @@ async function renderUpcomingCard(g) {
 async function loadRecentResults() {
   const box = $("#recent-results-list");
   const label = $("#last-league-name");
-  box.innerHTML = `<div class="empty-state">Carregando...</div>`;
+  box.innerHTML = skeletonCards(4);
   try {
     const recent = await computeRecentlyPlayedLeagues();
     if (!recent.length) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
@@ -755,9 +776,26 @@ async function loadDefaultStandings() {
   }
 }
 
+/* ---------- modais: fechar com Escape, restaurar foco ao fechar ---------- */
+let lastFocusedBeforeModal = null;
+function openModal(modal) {
+  lastFocusedBeforeModal = document.activeElement;
+  modal.classList.remove("hidden");
+  modal.querySelector("button")?.focus();
+}
+function closeModal(modal) {
+  modal.classList.add("hidden");
+  if (lastFocusedBeforeModal && document.body.contains(lastFocusedBeforeModal)) lastFocusedBeforeModal.focus();
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (!$("#match-modal").classList.contains("hidden")) closeModal($("#match-modal"));
+  else if (!$("#series-modal").classList.contains("hidden")) closeModal($("#series-modal"));
+});
+
 /* ---------- detalhe da série (modal) ---------- */
 function openSeries(s) {
-  $("#series-modal").classList.remove("hidden");
+  openModal($("#series-modal"));
   $("#series-title").textContent = `${s.teamAName} ${s.scoreA} - ${s.scoreB} ${s.teamBName}`;
   const box = $("#series-games");
   box.innerHTML = s.games.map((g, i) => {
@@ -774,12 +812,12 @@ function openSeries(s) {
   }).join("");
   box.querySelectorAll("[data-game]").forEach((el) => el.addEventListener("click", () => openMatch(el.dataset.game)));
 }
-$("#btn-close-series").addEventListener("click", () => $("#series-modal").classList.add("hidden"));
-$("#series-modal-backdrop").addEventListener("click", () => $("#series-modal").classList.add("hidden"));
+$("#btn-close-series").addEventListener("click", () => closeModal($("#series-modal")));
+$("#series-modal-backdrop").addEventListener("click", () => closeModal($("#series-modal")));
 
 /* ---------- detalhe da partida (modal) ---------- */
 async function openMatch(matchId) {
-  $("#match-modal").classList.remove("hidden");
+  openModal($("#match-modal"));
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando partida...</div>`;
   try {
     const m = await odFetch(`matches/${matchId}`);
@@ -788,8 +826,8 @@ async function openMatch(matchId) {
     $("#match-detail").innerHTML = renderMatchDetail(m);
   } catch { $("#match-detail").innerHTML = `<div class="empty-state">Erro ao carregar detalhe da partida.</div>`; }
 }
-$("#btn-close-match").addEventListener("click", () => $("#match-modal").classList.add("hidden"));
-$("#match-modal-backdrop").addEventListener("click", () => $("#match-modal").classList.add("hidden"));
+$("#btn-close-match").addEventListener("click", () => closeModal($("#match-modal")));
+$("#match-modal-backdrop").addEventListener("click", () => closeModal($("#match-modal")));
 
 function renderMatchDetail(m) {
   const rName = m.radiant_name || "Radiant", dName = m.dire_name || "Dire";
@@ -845,7 +883,11 @@ function renderMatchDetail(m) {
 /* ---------- Ranking MMR (aba do topo) ---------- */
 $$(".main-tab-btn").forEach((btn) => btn.addEventListener("click", () => switchMainView(btn.dataset.view)));
 function switchMainView(view) {
-  $$(".main-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $$(".main-tab-btn").forEach((b) => {
+    const active = b.dataset.view === view;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-selected", String(active));
+  });
   $("#layout").classList.toggle("hidden", view !== "torneios");
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
   $("#view-heroes").classList.toggle("hidden", view !== "heroes");
@@ -859,7 +901,10 @@ function switchMainView(view) {
   }
 }
 $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click", () => {
-  $$("#region-tabs .region-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  $$("#region-tabs .region-tab-btn").forEach((b) => {
+    b.classList.toggle("active", b === btn);
+    b.setAttribute("aria-selected", String(b === btn));
+  });
   loadRanking(btn.dataset.region);
 }));
 
@@ -867,7 +912,7 @@ async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
-  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  body.innerHTML = skeletonRows(8, 4);
   try {
     const stratzDivision = REGION_TO_STRATZ_DIVISION[division] || "EUROPE";
     const data = await stratzQuery(
@@ -919,7 +964,7 @@ function populateHeroesGrid() {
   const grid = $("#heroes-grid");
   const ids = Object.keys(HEROES).sort((a, b) => heroName(a).localeCompare(heroName(b)));
   grid.innerHTML = ids.map((id) =>
-    `<button class="hero-grid-icon" data-hero="${id}" title="${heroName(id)}"><img src="${heroImg(id)}" alt="${heroName(id)}"></button>`
+    `<button type="button" class="hero-grid-icon" data-hero="${id}" title="${heroName(id)}"><img src="${heroImg(id)}" alt="${heroName(id)}"></button>`
   ).join("");
   grid.querySelectorAll(".hero-grid-icon").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -974,7 +1019,7 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   const tabsHtml = stats.map((s) => {
     const pct = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
     const label = (POSITION_LABELS[s.position] || s.position).replace(/ \(.+\)/, "");
-    return `<button class="position-tab-btn ${s.position === selectedPosition ? "active" : ""}" data-pos="${s.position}">
+    return `<button type="button" class="position-tab-btn ${s.position === selectedPosition ? "active" : ""}" data-pos="${s.position}">
       ${label}<span class="ptb-sub">${pct}% vitórias · ${s.matchCount.toLocaleString("pt-BR")} jogos</span>
     </button>`;
   }).join("");
