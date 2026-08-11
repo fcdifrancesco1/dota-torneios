@@ -647,15 +647,15 @@ async function loadRanking(division) {
   $("#ranking-updated").textContent = "";
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
-    const res = await fetch(`/api/leaderboard?division=${division}&_=${Date.now()}`);
+    const res = await fetch(`/api/leaderboard?division=${division}&_=${Date.now()}`, { cache: "no-store" });
     const data = await res.json();
     if (requestId !== window.__rankingRequestId) return; // uma região mais nova já foi clicada, descarta essa resposta atrasada
-    if (!res.ok || !data || data.success === 0 || !data.leaderboard) {
+    if (!data || data.ok === false || !data.leaderboard) {
       let detail = "";
       if (data && data.attempts) {
         detail = data.attempts.map((a) => `${a.name}: ${a.error || (a.data ? JSON.stringify(a.data) : a.preview)}`).join(" | ");
-      } else if (data && (data.error || data.preview)) {
-        detail = `${data.error || ""} ${data.preview || ""}`;
+      } else if (data && data.error) {
+        detail = data.error;
       }
       body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Não foi possível carregar o ranking agora.<br>${detail}</td></tr>`;
       return;
