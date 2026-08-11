@@ -38,7 +38,7 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=1800", // a Valve só atualiza de hora em hora
+          "Cache-Control": "public, max-age=300", // reduzido pra 5min — evita ficar preso em cache por muito tempo
         },
         body: JSON.stringify(result.data),
       };
