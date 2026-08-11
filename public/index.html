@@ -23,6 +23,11 @@
     <button id="theme-toggle" aria-label="Alternar tema">🌙</button>
   </header>
 
+  <nav id="main-tabs">
+    <button class="main-tab-btn active" data-view="torneios">Torneios</button>
+    <button class="main-tab-btn" data-view="ranking">Ranking MMR</button>
+  </nav>
+
   <div id="layout">
 
     <!-- COLUNA ESQUERDA: torneios -->
@@ -78,6 +83,21 @@
     </aside>
 
   </div>
+
+  <!-- TELA: RANKING MMR -->
+  <section id="view-ranking" class="hidden">
+    <nav id="region-tabs">
+      <button class="region-tab-btn" data-region="americas">Américas</button>
+      <button class="region-tab-btn active" data-region="europe">Europa</button>
+      <button class="region-tab-btn" data-region="china">China</button>
+      <button class="region-tab-btn" data-region="se_asia">Sudeste Asiático</button>
+    </nav>
+    <div id="ranking-updated" class="section-sub"></div>
+    <table id="ranking-table">
+      <thead><tr><th>#</th><th>Jogador</th><th>MMR</th><th>País</th></tr></thead>
+      <tbody id="ranking-body"></tbody>
+    </table>
+  </section>
 
   <!-- MODAL: detalhe da série -->
   <div id="series-modal" class="hidden">

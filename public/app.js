@@ -245,7 +245,12 @@ function renderLiveMatchDetail(g) {
   const picksBansBlock = (side, isPick) => {
     const arr = (sb[side] && sb[side][isPick ? "picks" : "bans"]) || [];
     if (!arr.length) return "";
-    return arr.map((p) => `<div class="hero-chip ${isPick ? "" : "banned"}"><img src="${heroImg(p.hero_id)}" alt="${heroName(p.hero_id)}" title="${heroName(p.hero_id)}"></div>`).join("");
+    return arr.map((p, i) =>
+      `<div class="hero-chip ${isPick ? "" : "banned"}">
+        <img src="${heroImg(p.hero_id)}" alt="${heroName(p.hero_id)}" title="${heroName(p.hero_id)}">
+        <span class="pick-order">${i + 1}</span>
+      </div>`
+    ).join("");
   };
   const playerRow = (p) => {
     const items = [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5]
@@ -572,10 +577,15 @@ $("#match-modal-backdrop").addEventListener("click", () => $("#match-modal").cla
 function renderMatchDetail(m) {
   const rName = m.radiant_name || "Radiant", dName = m.dire_name || "Dire";
   const pb = m.picks_bans || [];
-  const picksBansBlock = (team, isPick) => {
-    const items = pb.filter((p) => p.team === team && p.is_pick === isPick);
+  const picksBansBlock = (team) => {
+    const items = pb.filter((p) => p.team === team).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     if (!items.length) return "";
-    return items.map((p) => `<div class="hero-chip ${isPick ? "" : "banned"}"><img src="${heroImg(p.hero_id)}" alt="${heroName(p.hero_id)}" title="${heroName(p.hero_id)}"></div>`).join("");
+    return items.map((p) =>
+      `<div class="hero-chip ${p.is_pick ? "" : "banned"}">
+        <img src="${heroImg(p.hero_id)}" alt="${heroName(p.hero_id)}" title="${heroName(p.hero_id)}">
+        <span class="pick-order">${(p.order ?? 0) + 1}</span>
+      </div>`
+    ).join("");
   };
   const playersRadiant = (m.players || []).filter((p) => p.player_slot < 128);
   const playersDire = (m.players || []).filter((p) => p.player_slot >= 128);
@@ -599,9 +609,9 @@ function renderMatchDetail(m) {
       </div>
     </div>
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
-    <div class="picks-row">${picksBansBlock(0, true)}${picksBansBlock(0, false)}</div>
+    <div class="picks-row">${picksBansBlock(0)}</div>
     <div class="team-block-title">Picks &amp; bans — ${dName}</div>
-    <div class="picks-row">${picksBansBlock(1, true)}${picksBansBlock(1, false)}</div>
+    <div class="picks-row">${picksBansBlock(1)}</div>
     <div class="team-block-title">${rName}</div>
     <table class="player-table">
       <thead><tr><th>Jogador</th><th>KDA</th><th>GPM</th><th>XPM</th><th>Itens</th></tr></thead>
@@ -613,6 +623,52 @@ function renderMatchDetail(m) {
       <tbody>${playersDire.map(playerRow).join("")}</tbody>
     </table>
   `;
+}
+
+/* ---------- Ranking MMR (aba do topo) ---------- */
+$$(".main-tab-btn").forEach((btn) => btn.addEventListener("click", () => switchMainView(btn.dataset.view)));
+function switchMainView(view) {
+  $$(".main-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  $("#layout").classList.toggle("hidden", view !== "torneios");
+  $("#view-ranking").classList.toggle("hidden", view !== "ranking");
+  if (view === "ranking" && !window.__rankingLoadedOnce) {
+    window.__rankingLoadedOnce = true;
+    loadRanking("europe");
+  }
+}
+$$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click", () => {
+  $$("#region-tabs .region-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  loadRanking(btn.dataset.region);
+}));
+
+async function loadRanking(division) {
+  const body = $("#ranking-body");
+  $("#ranking-updated").textContent = "";
+  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  try {
+    const res = await fetch(`/api/leaderboard?division=${division}`);
+    const data = await res.json();
+    if (!data || data.success === 0 || !data.leaderboard) {
+      body.innerHTML = `<tr><td colspan="4" class="empty-state">Não foi possível carregar o ranking agora.</td></tr>`;
+      return;
+    }
+    if (data.time_posted) {
+      const dt = new Date(data.time_posted * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      $("#ranking-updated").textContent = `Atualizado em ${dt} (a Valve atualiza de hora em hora)`;
+    }
+    body.innerHTML = data.leaderboard.map((p) => {
+      const flag = p.country ? `<img src="https://flagcdn.com/24x18/${String(p.country).toLowerCase()}.png" alt="${p.country}">` : "";
+      const tag = p.team_tag ? `<span class="team-tag">${p.team_tag}.</span>` : "";
+      return `<tr>
+        <td>${p.rank}</td>
+        <td>${tag}${p.name || "—"}</td>
+        <td class="numeric">${p.solo_mmr ?? "-"}</td>
+        <td><div class="player-country">${flag}</div></td>
+      </tr>`;
+    }).join("");
+  } catch {
+    body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao carregar o ranking.</td></tr>`;
+  }
 }
 
 /* ---------- boot ---------- */
