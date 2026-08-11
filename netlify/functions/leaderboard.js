@@ -38,7 +38,7 @@ exports.handler = async (event) => {
         statusCode: 200,
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=300", // reduzido pra 5min — evita ficar preso em cache por muito tempo
+          "Cache-Control": "no-store", // nunca cachear — a rota /api/* já causou um cache travado uma vez
         },
         body: JSON.stringify(result.data),
       };
@@ -48,8 +48,10 @@ exports.handler = async (event) => {
   // nenhuma variação funcionou — devolve diagnóstico completo pra investigar
   return {
     statusCode: 502,
+    headers: { "Cache-Control": "no-store" },
     body: JSON.stringify({
       error: "Nenhuma variação de nome de divisão funcionou",
+      requested,
       attempts,
     }),
   };
