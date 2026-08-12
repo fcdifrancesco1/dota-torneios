@@ -6,6 +6,8 @@
   --ink:#8A6118; --ink-soft:#4A4640; --ink-tertiary:#8C877D; --ink-muted:#B1ACA1;
   --line:#E4E0D6; --line-strong:#D6D1C4;
   --gold:#8A6118; --gold-accent:#B8842A; --radiant:#2F7A50; --dire:#B0392F; --live:#C8973F;
+  /* escala tipográfica: label < body < subtitle (título de seção) < heading (marca/modal) < display (drill-down: liga/herói selecionados) */
+  --fs-label:11px; --fs-body:13px; --fs-subtitle:15px; --fs-heading:18px; --fs-display:24px;
   color-scheme: light;
 }
 html[data-theme="dark"]{
@@ -46,17 +48,21 @@ body{
 .skeleton-row{ height:16px; margin-bottom:8px; }
 h1,h2,h3{ font-family:'Chakra Petch','Carlito',sans-serif; color:var(--ink); letter-spacing:-.01em; }
 .numeric, .score, td.numeric{ font-variant-numeric:tabular-nums; }
-h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px; font-weight:700; }
+h2{ font-size:var(--fs-subtitle); margin:0 0 12px; display:flex; align-items:baseline; gap:8px; font-weight:700; }
 .section-sub{ font-size:12px; color:var(--ink-tertiary); font-family:'Carlito',sans-serif; font-weight:400; }
 
 #app{ min-height:100vh; }
 
 #topbar{
   display:flex; align-items:center; justify-content:space-between;
-  padding:16px 24px; background:var(--paper); border-bottom:1px solid var(--line);
+  padding:16px 24px; border-bottom:1px solid var(--line);
+  background:linear-gradient(115deg,
+    color-mix(in srgb, var(--radiant) 7%, var(--paper)) 0%,
+    var(--paper) 42%, var(--paper) 58%,
+    color-mix(in srgb, var(--dire) 7%, var(--paper)) 100%);
 }
 #topbar-title{ display:flex; align-items:center; gap:9px; }
-#topbar-title h1{ font-size:17px; margin:0; font-weight:700; }
+#topbar-title h1{ font-size:var(--fs-heading); margin:0; font-weight:700; }
 .logo-dot{ width:9px; height:9px; border-radius:50%; background:var(--gold-accent); display:inline-block; }
 #theme-toggle{
   display:flex; align-items:center; justify-content:center;
@@ -82,7 +88,7 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 
 #layout{
   display:grid;
-  grid-template-columns: 256px 1fr 296px;
+  grid-template-columns: 256px 1fr 328px;
   gap:1px;
   max-width:1400px; margin:0 auto; padding:0;
   background:var(--line);
@@ -130,23 +136,25 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 #center{ min-width:0; }
 #center-default h2{ margin-top:28px; }
 #center-default h2:first-child{ margin-top:0; }
+/* evita salto de layout na troca skeleton -> conteúdo real */
+#upcoming-list, #recent-results-list, #live-list, #results-list{ min-height:76px; }
 
 #league-header{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
-#league-header h2{ margin:0; font-size:19px; }
+#league-header h2{ margin:0; font-size:var(--fs-display); }
 #btn-change-league{
   border:1px solid var(--line); background:var(--card); color:var(--ink-tertiary); border-radius:8px;
   padding:6px 12px; cursor:pointer; font-size:12px; font-family:inherit; transition:border-color .15s ease;
 }
 #btn-change-league:hover{ border-color:var(--line-strong); color:var(--ink-soft); }
 
-/* Tabs */
+/* Tabs — quietas até ativas, pra a aba selecionada ser o único destaque real */
 #tabs{ display:flex; gap:6px; margin-bottom:14px; }
 .tab-btn{
-  padding:8px 16px; border-radius:9px; border:1px solid var(--line); background:var(--card);
+  padding:8px 16px; border-radius:9px; border:1px solid transparent; background:transparent;
   color:var(--ink-tertiary); font-weight:700; cursor:pointer; font-family:inherit; font-size:13px;
   transition:all .15s ease;
 }
-.tab-btn:hover{ border-color:var(--line-strong); color:var(--ink-soft); }
+.tab-btn:hover{ border-color:var(--line); color:var(--ink-soft); }
 .tab-btn.active{ background:var(--gold-accent); border-color:var(--gold-accent); color:#191207; }
 
 /* Cards de partida */
@@ -163,14 +171,22 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 .match-card:hover{ border-color:var(--line-strong); box-shadow:0 4px 12px -6px rgba(0,0,0,.18); }
 .match-card:active{ transform:scale(0.985); }
 .match-teams{ display:flex; align-items:stretch; justify-content:space-between; gap:10px; }
+/* borda indica o resultado do time nessa série, não o lado radiant/dire da partida:
+   verde = venceu a série, vermelho = perdeu, dourado = empate (comum em melhor-de-2), cinza = ainda em andamento */
 .team-side{
   display:flex; align-items:center; gap:7px; flex:1; min-width:0;
-  border-left:2px solid var(--radiant); padding-left:8px;
+  border-left:2px solid var(--line-strong); padding-left:8px;
 }
 .team-side-right{
   justify-content:flex-end; text-align:right;
-  border-left:none; border-right:2px solid var(--dire); padding-left:0; padding-right:8px;
+  border-left:none; border-right:2px solid var(--line-strong); padding-left:0; padding-right:8px;
 }
+.team-side.side-win{ border-left-color:var(--radiant); }
+.team-side.side-loss{ border-left-color:var(--dire); }
+.team-side.side-draw{ border-left-color:var(--live); }
+.team-side-right.side-win{ border-right-color:var(--radiant); }
+.team-side-right.side-loss{ border-right-color:var(--dire); }
+.team-side-right.side-draw{ border-right-color:var(--live); }
 .team-logo{ width:20px; height:20px; object-fit:contain; border-radius:5px; flex-shrink:0; }
 .team-logo-empty{ width:20px; height:20px; border-radius:5px; background:var(--line); flex-shrink:0; display:inline-block; }
 .team-name{ font-weight:700; color:var(--ink-soft); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -185,12 +201,16 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 .empty-state{ text-align:center; padding:30px 16px; color:var(--ink-tertiary); font-size:13px; }
 
 /* Classificação */
-#standings-table{ width:100%; border-collapse:collapse; }
+#standings-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
 #standings-table th, #standings-table td{
   padding:8px 8px; text-align:left; border-bottom:1px solid var(--line); font-size:12px; color:var(--ink-soft);
 }
 #standings-table th{ color:var(--ink-tertiary); font-size:10px; text-transform:uppercase; letter-spacing:.03em; }
 #standings-table td.numeric{ font-weight:700; color:var(--ink-soft); }
+#standings-table th:first-child, #standings-table td:first-child{ width:22px; }
+#standings-table th:nth-child(3), #standings-table td:nth-child(3),
+#standings-table th:nth-child(4), #standings-table td:nth-child(4){ width:56px; }
+#standings-table td:nth-child(2){ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .group-label-row td{
   font-size:10px; text-transform:uppercase; font-weight:800; color:var(--gold); padding-top:16px;
   border-bottom:1px solid var(--line); letter-spacing:.06em;
@@ -204,7 +224,7 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
   max-width:520px; width:92%; max-height:80vh; overflow-y:auto; padding:24px;
   animation:modal-in .2s cubic-bezier(.23,1,.32,1);
 }
-#series-modal-sheet h2{ font-size:16px; margin-bottom:14px; padding-right:36px; }
+#series-modal-sheet h2{ font-size:var(--fs-heading); margin-bottom:14px; padding-right:36px; }
 #btn-close-series{
   position:absolute; top:16px; right:16px; border:none; background:var(--card); color:var(--ink-tertiary);
   border-radius:8px; width:32px; height:32px; cursor:pointer; transition:color .15s ease;
@@ -258,21 +278,26 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 }
 #toast.show{ opacity:1; }
 
-/* fallback responsivo: empilha em telas estreitas */
+/* fallback responsivo: empilha em telas estreitas.
+   Ordem: busca -> classificação (compacta) -> partidas (lista longa),
+   assim a classificação não fica perdida depois de um scroll grande de cards. */
 @media (max-width:1000px){
   #layout{ grid-template-columns:1fr; }
   #sidebar-left, #sidebar-right{ position:static; min-height:0; }
+  #sidebar-left{ order:1; }
+  #sidebar-right{ order:2; }
+  #center{ order:3; }
 }
 
 /* Ranking MMR */
 #view-ranking{ max-width:900px; margin:0 auto; padding:24px; }
 #region-tabs{ display:flex; gap:6px; margin-bottom:10px; }
 .region-tab-btn{
-  padding:8px 16px; border-radius:9px; border:1px solid var(--line); background:var(--card);
+  padding:8px 16px; border-radius:9px; border:1px solid transparent; background:transparent;
   color:var(--ink-tertiary); font-weight:700; cursor:pointer; font-family:inherit; font-size:13px;
   transition:all .15s ease;
 }
-.region-tab-btn:hover{ border-color:var(--line-strong); color:var(--ink-soft); }
+.region-tab-btn:hover{ border-color:var(--line); color:var(--ink-soft); }
 .region-tab-btn.active{ background:var(--gold-accent); border-color:var(--gold-accent); color:#191207; }
 #ranking-table{ width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 #ranking-table th, #ranking-table td{ padding:10px 14px; text-align:left; border-bottom:1px solid var(--line); font-size:13px; color:var(--ink-soft); }
@@ -300,14 +325,14 @@ html[data-theme="dark"] #theme-toggle .icon-sun{ display:block; }
 #hero-detail{ min-height:200px; }
 .hero-detail-header{ display:flex; align-items:center; gap:12px; margin-bottom:18px; }
 .hero-detail-header img{ width:56px; height:56px; border-radius:10px; }
-.hero-detail-header h2{ margin:0; font-size:20px; }
+.hero-detail-header h2{ margin:0; font-size:var(--fs-display); }
 #hero-position-tabs{ display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
 .position-tab-btn{
-  padding:8px 14px; border-radius:9px; border:1px solid var(--line); background:var(--card);
+  padding:8px 14px; border-radius:9px; border:1px solid transparent; background:transparent;
   color:var(--ink-tertiary); font-weight:700; cursor:pointer; font-family:inherit; font-size:12px; text-align:left;
   transition:all .15s ease;
 }
-.position-tab-btn:hover{ border-color:var(--line-strong); color:var(--ink-soft); }
+.position-tab-btn:hover{ border-color:var(--line); color:var(--ink-soft); }
 .position-tab-btn.active{ background:var(--gold-accent); border-color:var(--gold-accent); color:#191207; }
 .position-tab-btn .ptb-sub{ display:block; font-weight:400; font-size:10px; opacity:.85; }
 .item-build-section{ margin-bottom:20px; }

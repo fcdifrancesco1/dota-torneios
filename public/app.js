@@ -335,12 +335,15 @@ async function loadLive() {
     const data = await liveFetch(currentLeague.leagueid);
     const games = (data && data.result && data.result.games) || [];
     if (!games.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo agora neste torneio.</div>`; return; }
-    box.innerHTML = `<div class="match-grid">${games.map((g, i) => renderLiveCard(g, i)).join("")}</div>`;
+    const logos = await ensureTeamLogos(games.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id]));
+    box.innerHTML = `<div class="match-grid">${games.map((g, i) => renderLiveCard(g, i, logos)).join("")}</div>`;
     box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(games[+el.dataset.live])));
   } catch { box.innerHTML = `<div class="empty-state">Não foi possível carregar partidas ao vivo.</div>`; }
 }
-function renderLiveCard(g, idx) {
+function renderLiveCard(g, idx, logos) {
   const sb = g.scoreboard;
+  const rId = g.radiant_team && g.radiant_team.team_id;
+  const dId = g.dire_team && g.dire_team.team_id;
   const radiantName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const direName = (g.dire_team && g.dire_team.team_name) || "Dire";
   const rScore = sb && sb.radiant ? sb.radiant.score : 0;
@@ -349,9 +352,15 @@ function renderLiveCard(g, idx) {
   return `<div class="match-card" data-live="${idx}">
       <span class="live-badge">● Ao vivo · ${minutes}min</span>
       <div class="match-teams" style="margin-top:8px">
-        <span class="team-name">${radiantName}</span>
+        <div class="team-side">
+          ${teamLogoImg(logos ? logos[rId] : null, radiantName)}
+          <span class="team-name">${radiantName}</span>
+        </div>
         <span class="score">${rScore} - ${dScore}</span>
-        <span class="team-name" style="text-align:right">${direName}</span>
+        <div class="team-side team-side-right">
+          <span class="team-name">${direName}</span>
+          ${teamLogoImg(logos ? logos[dId] : null, direName)}
+        </div>
       </div>
     </div>`;
 }
@@ -479,18 +488,20 @@ async function loadResults() {
   } catch { box.innerHTML = `<div class="empty-state">Erro ao carregar resultados.</div>`; }
 }
 function renderSeriesCard(s, idx, logos) {
+  const draw = s.decided && s.scoreA === s.scoreB;
   const aWon = s.decided && s.scoreA > s.scoreB;
   const bWon = s.decided && s.scoreB > s.scoreA;
+  const sideClass = (won) => (draw ? "side-draw" : won ? "side-win" : s.decided ? "side-loss" : "");
   const logoA = logos ? logos[s.teamAId] : null;
   const logoB = logos ? logos[s.teamBId] : null;
   return `<div class="match-card" data-series="${idx}">
       <div class="match-teams">
-        <div class="team-side">
+        <div class="team-side ${sideClass(aWon)}">
           ${teamLogoImg(logoA, s.teamAName)}
           <span class="team-name ${aWon ? "winner" : ""}">${s.teamAName}</span>
         </div>
         <span class="score">${s.scoreA} - ${s.scoreB}</span>
-        <div class="team-side team-side-right">
+        <div class="team-side team-side-right ${sideClass(bWon)}">
           <span class="team-name ${bWon ? "winner" : ""}">${s.teamBName}</span>
           ${teamLogoImg(logoB, s.teamBName)}
         </div>
@@ -656,7 +667,8 @@ async function loadUpcoming() {
     await ensureLeaguesLoaded().catch(() => {});
     liveGames = allLive.filter((g) => isTopTierLeague(g.league_id)); // só torneios premium/profissionais
     if (liveGames.length) {
-      const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+      const logos = await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id]));
+      const liveCards = liveGames.map((g, i) => renderLiveCard(g, i, logos)).join("");
       liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
     }
   } catch { /* segue sem a seção de ao vivo se essa chamada falhar */ }
