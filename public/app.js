@@ -894,15 +894,16 @@ async function loadRanking(division) {
     }
     const total = data.leaderboard.season.playerCount;
     $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores rankeados nessa região — dados do STRATZ`;
-    body.innerHTML = players.map((p) => {
+    body.innerHTML = players.map((p, i) => {
       const acc = p.steamAccount || {};
       const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="">` : `<span class="player-avatar player-avatar-empty"></span>`;
-      const winPct = p.matchCount ? Math.round((p.winRate || 0) * 100) : "-";
+      // a STRATZ já manda winRate em porcentagem (ex: 59 = 59%), não em fração — sem multiplicar por 100 de novo
+      const winPct = p.matchCount ? Math.round(p.winRate || 0) : "-";
       const heroes = [p.topHeroOne, p.topHeroTwo, p.topHeroThree].filter(Boolean)
         .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}">`).join("");
       const posLabel = p.position && POSITION_LABELS[p.position] ? POSITION_LABELS[p.position].replace(/ \(.+\)/, "") : "—";
       return `<tr>
-        <td>${p.rank}</td>
+        <td>${i + 1}</td>
         <td><div class="player-country">${avatar}${acc.name || `Jogador ${p.steamAccountId}`}</div></td>
         <td class="numeric">${winPct}${p.matchCount ? "%" : ""}</td>
         <td>${posLabel}</td>
@@ -981,10 +982,20 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   }).join("");
 
   const itemSection = (title, items, opts) => {
-    const filtered = items.filter((i) => i.position === selectedPosition).sort((a, b) => b.matchCount - a.matchCount);
-    const top = opts.sortByTime
-      ? filtered.slice(0, opts.take).sort((a, b) => (a.time || 0) - (b.time || 0))
-      : filtered.slice(0, opts.take);
+    const filtered = items.filter((i) => i.position === selectedPosition);
+    // a STRATZ devolve várias linhas por item (uma pra cada janela de tempo em que foi comprado) —
+    // agrupamos por item antes de escolher os mais populares, senão o mesmo item aparece repetido.
+    const byItem = {};
+    filtered.forEach((i) => {
+      const acc = byItem[i.itemId] || (byItem[i.itemId] = { itemId: i.itemId, matchCount: 0, winCount: 0, timeSum: 0, timeN: 0 });
+      acc.matchCount += i.matchCount || 0;
+      acc.winCount += i.winCount || 0;
+      if (i.time != null) { acc.timeSum += i.time; acc.timeN++; }
+    });
+    let list = Object.values(byItem).map((i) => ({ ...i, time: i.timeN ? i.timeSum / i.timeN : null }));
+    list.sort((a, b) => b.matchCount - a.matchCount);
+    let top = list.slice(0, opts.take);
+    if (opts.sortByTime) top = top.sort((a, b) => (a.time || 0) - (b.time || 0));
     if (!top.length) return "";
     const chips = top.map((i) => {
       const pct = i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0;
