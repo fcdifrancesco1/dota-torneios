@@ -36,10 +36,27 @@ exports.handler = async (event) => {
       body: JSON.stringify({ query, variables }),
     });
     const text = await resp.text();
+
+    // sempre devolve JSON válido pro front-end, mesmo que a STRATZ tenha respondido
+    // algo estranho (página de erro, texto puro, etc.) — assim dá pra diagnosticar
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch {
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        body: JSON.stringify({
+          errors: [{ message: "A resposta da STRATZ não veio em JSON" }],
+          stratzStatus: resp.status,
+          preview: text.slice(0, 500),
+        }),
+      };
+    }
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-      body: text,
+      body: JSON.stringify(parsed),
     };
   } catch (err) {
     return { statusCode: 502, body: JSON.stringify({ error: "Falha ao consultar o STRATZ", detail: String(err) }) };
