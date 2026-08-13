@@ -11,6 +11,7 @@ const BASE = "https://api.opendota.com/api";
 function isAllowed(path) {
   return (
     path === "leagues" ||
+    path === "teams" ||
     /^leagues\/\d+\/matches$/.test(path) ||
     /^matches\/\d+$/.test(path) ||
     /^teams\/\d+$/.test(path) ||
@@ -36,7 +37,7 @@ exports.handler = async (event) => {
     const data = await resp.json();
 
     // cache curto no navegador/CDN pra não bater na OpenDota toda hora
-    const cacheSeconds = path.startsWith("constants/") || path.startsWith("teams/") ? 86400
+    const cacheSeconds = path.startsWith("constants/") || path.startsWith("teams/") || path === "teams" ? 86400
       : path.startsWith("players/") ? 3600
       : path === "proMatches" ? 60
       : 30;
