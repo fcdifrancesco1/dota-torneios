@@ -274,6 +274,7 @@ document.addEventListener("click", (e) => {
 /* ---------- seleção de torneio ---------- */
 function selectLeague(league) {
   if (!league) return;
+  stopOverviewLivePolling();
   currentLeague = { leagueid: league.leagueid, name: league.name };
   cachedMatches = null;
 
@@ -294,6 +295,7 @@ $("#btn-change-league").addEventListener("click", () => {
   $("#center-default").classList.remove("hidden");
   loadCenterDefault();
   loadDefaultStandings();
+  startOverviewLivePolling();
 });
 
 /* ---------- abas (torneio selecionado) ---------- */
@@ -378,7 +380,11 @@ function startLiveMinimap(g) {
         (x.radiant_team && x.radiant_team.team_name) === rName && (x.dire_team && x.dire_team.team_name) === dName
       );
       if (!match) { stopLiveMinimap(); return; } // partida acabou ou saiu do ar
-      renderMinimapDots(match.scoreboard);
+      const sb = match.scoreboard || {};
+      await enrichPlayerNames([...getSidePlayers(sb, "radiant"), ...getSidePlayers(sb, "dire")]).catch(() => {});
+      // re-renderiza tudo (placar, KDA, itens) e não só o mapa — senão só a posição no mapa atualizava
+      $("#match-detail").innerHTML = renderLiveMatchDetail(match);
+      renderMinimapDots(sb);
     } catch { /* mantém o último estado se uma atualização falhar */ }
   };
   renderMinimapDots(g.scoreboard);
@@ -391,19 +397,33 @@ function worldToPct(x, y) {
   const fy = 1 - (y - MAP_MIN) / (MAP_MAX - MAP_MIN); // eixo Y do jogo cresce pra "cima" (norte)
   return { left: `${Math.min(100, Math.max(0, fx * 100)).toFixed(1)}%`, top: `${Math.min(100, Math.max(0, fy * 100)).toFixed(1)}%` };
 }
+// posição aproximada de cada fontanha na imagem do mapa (Radiant = canto inferior esquerdo, Dire = canto superior direito)
+const RADIANT_BASE = { left: 10, top: 88 };
+const DIRE_BASE = { left: 88, top: 10 };
 function renderMinimapDots(sb) {
   const box = $("#live-minimap-dots");
   if (!box || !sb) return;
   const rPlayers = getSidePlayers(sb, "radiant");
   const dPlayers = getSidePlayers(sb, "dire");
-  const dot = (p, cls) => {
-    if (p.position_x == null || p.position_y == null) return "";
-    const pos = worldToPct(p.position_x, p.position_y);
-    return `<div class="minimap-hero ${cls}" style="left:${pos.left};top:${pos.top}" title="${heroName(p.hero_id)}">
+  const dot = (p, cls, base, jitterIdx) => {
+    const dead = (p.respawn_timer || 0) > 0;
+    let left, top;
+    if (dead) {
+      // morto: mostra na base do time, em cinza, com um leve espalhamento pra não empilhar 100% igual
+      left = `${base.left + (jitterIdx % 3) * 3 - 3}%`;
+      top = `${base.top + Math.floor(jitterIdx / 3) * 3 - 3}%`;
+    } else {
+      if (p.position_x == null || p.position_y == null) return "";
+      const pos = worldToPct(p.position_x, p.position_y);
+      left = pos.left; top = pos.top;
+    }
+    return `<div class="minimap-hero ${cls} ${dead ? "minimap-dead" : ""}" style="left:${left};top:${top}" title="${heroName(p.hero_id)}${dead ? " (morto)" : ""}">
       <img src="${heroImg(p.hero_id)}" alt="">
     </div>`;
   };
-  box.innerHTML = rPlayers.map((p) => dot(p, "minimap-radiant")).join("") + dPlayers.map((p) => dot(p, "minimap-dire")).join("");
+  box.innerHTML =
+    rPlayers.map((p, i) => dot(p, "minimap-radiant", RADIANT_BASE, i)).join("") +
+    dPlayers.map((p, i) => dot(p, "minimap-dire", DIRE_BASE, i)).join("");
 }
 function renderLiveMatchDetail(g) {
   const sb = g.scoreboard || {};
@@ -660,6 +680,25 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
 
 
 /* ---------- visão geral (sem torneio selecionado) ---------- */
+let overviewLiveTimer = null;
+function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTimer = setInterval(refreshOverviewLive, 20000); }
+function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overviewLiveTimer); overviewLiveTimer = null; }
+
+async function refreshOverviewLive() {
+  const block = $("#upcoming-live-block");
+  if (!block) { stopOverviewLivePolling(); return; } // não está mais na tela
+  try {
+    const liveData = await liveFetch();
+    const allLive = (liveData && liveData.result && liveData.result.games) || [];
+    await ensureLeaguesLoaded().catch(() => {});
+    const liveGames = allLive.filter((g) => isTopTierLeague(g.league_id));
+    if (!liveGames.length) { block.remove(); return; }
+    await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
+    block.querySelector(".match-grid").innerHTML = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+    block.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
+  } catch { /* mantém o último estado se uma atualização falhar */ }
+}
+
 async function loadCenterDefault() {
   window.__featuredLeague = await determineFeaturedLeague();
   await Promise.all([loadUpcoming(), loadRecentResults()]);
@@ -699,7 +738,7 @@ async function loadUpcoming() {
   if (liveGames.length) {
     await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
     const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
-    liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
+    liveHtml = `<div class="date-group" id="upcoming-live-block"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
   }
 
   let scheduledHtml = "";
@@ -915,6 +954,7 @@ function switchMainView(view) {
   $("#layout").classList.toggle("hidden", view !== "torneios");
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
   $("#view-heroes").classList.toggle("hidden", view !== "heroes");
+  if (view === "torneios" && !currentLeague) startOverviewLivePolling(); else stopOverviewLivePolling();
   if (view === "ranking" && !window.__rankingLoadedOnce) {
     window.__rankingLoadedOnce = true;
     loadRanking("europe");
@@ -1090,4 +1130,5 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   renderRecent();
   await loadCenterDefault();
   await loadDefaultStandings();
+  startOverviewLivePolling();
 })();

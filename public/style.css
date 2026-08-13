@@ -212,6 +212,7 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
   border:2px solid var(--radiant); box-shadow:0 1px 4px rgba(0,0,0,.5); transition:left .3s linear, top .3s linear;
 }
 .minimap-hero.minimap-dire{ border-color:var(--dire); }
+.minimap-hero.minimap-dead{ filter:grayscale(1) brightness(0.75); opacity:.75; }
 .minimap-hero img{ width:100%; height:100%; object-fit:cover; border-radius:3px; }
 .picks-row{ display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 16px; }
 .hero-chip{ width:36px; height:36px; border-radius:8px; background:var(--line); overflow:hidden; position:relative; }
