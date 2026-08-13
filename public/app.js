@@ -390,6 +390,20 @@ function getSidePlayers(sb, side) {
   return s.players || s.player || [];
 }
 let liveMinimapTimer = null;
+// links de transmissão por torneio (public/streams.json, editado manualmente por você)
+let streamsDataCache = null;
+async function ensureStreamsData() {
+  if (streamsDataCache) return streamsDataCache;
+  try {
+    const res = await fetch(`/streams.json?_=${Date.now()}`, { cache: "no-store" });
+    streamsDataCache = res.ok ? await res.json() : {};
+  } catch { streamsDataCache = {}; }
+  return streamsDataCache;
+}
+function getStreamLinksForLeague(streamsData, leagueName) {
+  return (streamsData && leagueName && streamsData[leagueName]) || null;
+}
+
 async function openLiveGame(g) {
   $("#match-modal").classList.remove("hidden");
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando...</div>`;
@@ -399,15 +413,18 @@ async function openLiveGame(g) {
     const rPlayers = getSidePlayers(sb, "radiant");
     const dPlayers = getSidePlayers(sb, "dire");
     await enrichPlayerNames([...rPlayers, ...dPlayers]);
-    $("#match-detail").innerHTML = renderLiveMatchDetail(g);
-    startLiveMinimap(g);
+    await ensureLeaguesLoaded().catch(() => {});
+    const streamsData = await ensureStreamsData();
+    const leagueName = leagueNameById(g.league_id);
+    $("#match-detail").innerHTML = renderLiveMatchDetail(g, getStreamLinksForLeague(streamsData, leagueName));
+    startLiveMinimap(g, streamsData);
   } catch { $("#match-detail").innerHTML = `<div class="empty-state">Erro ao carregar a partida ao vivo.</div>`; }
 }
 function stopLiveMinimap() {
   if (liveMinimapTimer) clearInterval(liveMinimapTimer);
   liveMinimapTimer = null;
 }
-function startLiveMinimap(g) {
+function startLiveMinimap(g, streamsData) {
   const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const dName = (g.dire_team && g.dire_team.team_name) || "Dire";
   const leagueId = g.league_id;
@@ -423,7 +440,8 @@ function startLiveMinimap(g) {
       const sb = match.scoreboard || {};
       await enrichPlayerNames([...getSidePlayers(sb, "radiant"), ...getSidePlayers(sb, "dire")]).catch(() => {});
       // re-renderiza tudo (placar, KDA, itens) e não só o mapa — senão só a posição no mapa atualizava
-      $("#match-detail").innerHTML = renderLiveMatchDetail(match);
+      const leagueName = leagueNameById(match.league_id || leagueId);
+      $("#match-detail").innerHTML = renderLiveMatchDetail(match, getStreamLinksForLeague(streamsData, leagueName));
       renderMinimapDots(sb);
     } catch { /* mantém o último estado se uma atualização falhar */ }
   };
@@ -465,11 +483,16 @@ function renderMinimapDots(sb) {
     rPlayers.map((p, i) => dot(p, "minimap-radiant", RADIANT_BASE, i)).join("") +
     dPlayers.map((p, i) => dot(p, "minimap-dire", DIRE_BASE, i)).join("");
 }
-function renderLiveMatchDetail(g) {
+function renderLiveMatchDetail(g, streamLinks) {
   const sb = g.scoreboard || {};
   const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const dName = (g.dire_team && g.dire_team.team_name) || "Dire";
   const minutes = Math.floor((sb.duration || 0) / 60);
+  const streamButtonsHtml = streamLinks ? `<div class="stream-links">
+    ${streamLinks.youtube ? `<a class="stream-btn stream-youtube" href="${streamLinks.youtube}" target="_blank" rel="noopener">▶ YouTube</a>` : ""}
+    ${streamLinks.twitch ? `<a class="stream-btn stream-twitch" href="${streamLinks.twitch}" target="_blank" rel="noopener">▶ Twitch</a>` : ""}
+    ${streamLinks.kick ? `<a class="stream-btn stream-kick" href="${streamLinks.kick}" target="_blank" rel="noopener">▶ Kick</a>` : ""}
+  </div>` : "";
   const picksBansBlock = (side, isPick) => {
     const arr = (sb[side] && sb[side][isPick ? "picks" : "bans"]) || [];
     if (!arr.length) return "";
@@ -497,6 +520,7 @@ function renderLiveMatchDetail(g) {
       <div>${rName} <span class="score">${(sb.radiant && sb.radiant.score) || 0} - ${(sb.dire && sb.dire.score) || 0}</span> ${dName}</div>
       <div class="match-meta" style="justify-content:center;gap:16px"><span>${minutes} min (em andamento)</span></div>
     </div>
+    ${streamButtonsHtml}
     <div class="team-block-title">Mapa (atualiza a cada ~6s — posições aproximadas)</div>
     <div id="live-minimap"><div id="live-minimap-dots"></div></div>
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
@@ -789,6 +813,55 @@ async function determineFeaturedLeague() {
 
 // agenda editada manualmente por você (public/agenda.json) — usada como fonte principal de
 // "próximas partidas" já que nenhuma API pública tem essa informação de forma confiável hoje.
+// escalação prevista (public/players.json, editado manualmente por você)
+let playersDataCache = null;
+async function ensurePlayersData() {
+  if (playersDataCache) return playersDataCache;
+  try {
+    const res = await fetch(`/players.json?_=${Date.now()}`, { cache: "no-store" });
+    playersDataCache = res.ok ? await res.json() : [];
+  } catch { playersDataCache = []; }
+  return playersDataCache;
+}
+function rosterForTeam(playersData, teamName) {
+  const key = normalizeTeamName(teamName);
+  return playersData
+    .filter((p) => normalizeTeamName(p.team) === key)
+    .sort((a, b) => (a.position || 99) - (b.position || 99));
+}
+const NUMERIC_POSITION_LABELS = {
+  1: "Posição 1 (Carry)", 2: "Posição 2 (Mid)", 3: "Posição 3 (Offlane)",
+  4: "Posição 4 (Suporte)", 5: "Posição 5 (Suporte duro)",
+};
+async function openAgendaMatch(item) {
+  $("#match-modal").classList.remove("hidden");
+  stopLiveMinimap();
+  $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação...</div>`;
+  const playersData = await ensurePlayersData();
+  const rosterA = rosterForTeam(playersData, item.timeA);
+  const rosterB = rosterForTeam(playersData, item.timeB);
+  const when = new Date(item.data).toLocaleString("pt-BR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  const rosterRows = (roster) => {
+    if (!roster.length) return `<div class="empty-state">Escalação não cadastrada ainda.</div>`;
+    return `<table class="player-table">
+      <thead><tr><th>Posição</th><th>Jogador</th></tr></thead>
+      <tbody>${roster.map((p) => `<tr><td>${NUMERIC_POSITION_LABELS[p.position] || p.position || "—"}</td><td>${p.nickname}</td></tr>`).join("")}</tbody>
+    </table>`;
+  };
+
+  $("#match-detail").innerHTML = `
+    <div class="match-header">
+      <div>${item.timeA || "A definir"} <span class="score" style="font-size:20px">${item.formato || "vs"}</span> ${item.timeB || "A definir"}</div>
+      <div class="match-meta" style="justify-content:center;gap:16px"><span>${when}</span>${item.fase ? `<span>${item.fase}</span>` : ""}</div>
+    </div>
+    <div class="team-block-title">${item.timeA || "Time A"}</div>
+    ${rosterRows(rosterA)}
+    <div class="team-block-title">${item.timeB || "Time B"}</div>
+    ${rosterRows(rosterB)}
+  `;
+}
+
 async function loadManualAgenda() {
   try {
     const res = await fetch(`/agenda.json?_=${Date.now()}`, { cache: "no-store" });
@@ -803,11 +876,11 @@ async function loadManualAgenda() {
     if (!future.length) return "";
 
     const teamIndex = await ensureTeamsByNameIndex().catch(() => ({}));
-    const cardsHtml = future.map((it) => {
+    const cardsHtml = future.map((it, i) => {
       const logoA = teamLogoByName(teamIndex, it.timeA);
       const logoB = teamLogoByName(teamIndex, it.timeB);
       const when = new Date(it.data).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-      return `<div class="match-card" style="cursor:default">
+      return `<div class="match-card" data-agenda="${i}">
         <div class="match-teams">
           <div class="team-side">${teamLogoImg(logoA, it.timeA)}<span class="team-name">${it.timeA || "A definir"}</span></div>
           <span class="score" style="font-size:13px">${it.formato || "vs"}</span>
@@ -818,6 +891,11 @@ async function loadManualAgenda() {
     }).join("");
 
     if (future[0].torneio) $("#next-league-name").textContent = `— ${future[0].torneio}`;
+    setTimeout(() => {
+      document.querySelectorAll("[data-agenda]").forEach((el) => {
+        el.addEventListener("click", () => openAgendaMatch(future[+el.dataset.agenda]));
+      });
+    }, 0);
     return `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml}</div></div>`;
   } catch { return ""; } // agenda.json ausente, vazio ou com erro de formato — segue pras outras fontes
 }

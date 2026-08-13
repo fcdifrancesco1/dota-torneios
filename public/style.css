@@ -153,6 +153,15 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
   background:var(--live); color:#191207; font-size:10px; font-weight:800; padding:3px 9px;
   border-radius:20px; text-transform:uppercase; letter-spacing:.04em;
 }
+.stream-links{ display:flex; gap:8px; justify-content:center; margin:0 0 16px; }
+.stream-btn{
+  padding:7px 14px; border-radius:8px; font-size:12px; font-weight:800; color:#fff; text-decoration:none;
+  display:inline-flex; align-items:center; gap:5px; transition:opacity .15s ease;
+}
+.stream-btn:hover{ opacity:.85; }
+.stream-btn.stream-youtube{ background:#FF0000; }
+.stream-btn.stream-twitch{ background:#9146FF; }
+.stream-btn.stream-kick{ background:#53FC18; color:#0d1a05; }
 
 .empty-state{ text-align:center; padding:30px 16px; color:var(--ink-tertiary); font-size:13px; }
 

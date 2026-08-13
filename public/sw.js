@@ -15,8 +15,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
-  // Nunca cachear chamadas de API nem a agenda manual (dados sempre têm que vir frescos)
-  if (e.request.url.includes("/api/") || e.request.url.includes("/.netlify/functions/") || e.request.url.includes("agenda.json")) return;
+  // Nunca cachear chamadas de API nem os arquivos manuais editados no GitHub (dados sempre têm que vir frescos)
+  if (e.request.url.includes("/api/") || e.request.url.includes("/.netlify/functions/") || e.request.url.includes("agenda.json") || e.request.url.includes("streams.json") || e.request.url.includes("players.json")) return;
 
   const isCoreFile = /\.(html|js|css)$/.test(new URL(e.request.url).pathname) || e.request.mode === "navigate";
 
