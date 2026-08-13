@@ -287,9 +287,12 @@ function selectLeague(league) {
   $("#center-league").classList.remove("hidden");
   switchTab("live");
   loadStandingsFor(currentLeague.leagueid, currentLeague.name, false);
+  startStandingsPolling();
 }
 $("#btn-change-league").addEventListener("click", () => {
   stopLivePolling();
+  stopResultsPolling();
+  stopStandingsPolling();
   currentLeague = null;
   $("#center-league").classList.add("hidden");
   $("#center-default").classList.remove("hidden");
@@ -304,12 +307,30 @@ function switchTab(tab) {
   $$(".tab-panel").forEach((p) => p.classList.add("hidden"));
   $(`#tab-${tab}`).classList.remove("hidden");
   if (tab === "live") { loadLive(); startLivePolling(); } else stopLivePolling();
-  if (tab === "results") loadResults();
+  if (tab === "results") { loadResults(); startResultsPolling(); } else stopResultsPolling();
 }
 $$(".tab-btn").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
 
 function startLivePolling() { stopLivePolling(); liveTimer = setInterval(loadLive, 30000); }
 function stopLivePolling() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
+
+// resultados de um torneio selecionado mudam devagar (depende da OpenDota/STRATZ processarem a
+// partida depois que ela termina) — atualiza de tempos em tempos em vez de exigir F5 manual.
+let resultsPollTimer = null;
+function startResultsPolling() {
+  stopResultsPolling();
+  resultsPollTimer = setInterval(() => { cachedMatches = null; loadResults(); }, 60000);
+}
+function stopResultsPolling() { if (resultsPollTimer) clearInterval(resultsPollTimer); resultsPollTimer = null; }
+
+let standingsPollTimer = null;
+function startStandingsPolling() {
+  stopStandingsPolling();
+  standingsPollTimer = setInterval(() => {
+    if (currentLeague) loadStandingsFor(currentLeague.leagueid, currentLeague.name, false);
+  }, 60000);
+}
+function stopStandingsPolling() { if (standingsPollTimer) clearInterval(standingsPollTimer); standingsPollTimer = null; }
 
 async function loadLive() {
   const box = $("#live-list");
@@ -685,16 +706,27 @@ function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTim
 function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overviewLiveTimer); overviewLiveTimer = null; }
 
 async function refreshOverviewLive() {
-  const block = $("#upcoming-live-block");
-  if (!block) { stopOverviewLivePolling(); return; } // não está mais na tela
+  const upcomingBox = $("#upcoming-list");
+  if (!upcomingBox) return;
   try {
     const liveData = await liveFetch();
     const allLive = (liveData && liveData.result && liveData.result.games) || [];
     await ensureLeaguesLoaded().catch(() => {});
     const liveGames = allLive.filter((g) => isTopTierLeague(g.league_id));
-    if (!liveGames.length) { block.remove(); return; }
+    let block = $("#upcoming-live-block");
+    if (!liveGames.length) { if (block) block.remove(); return; } // sem jogo ao vivo agora, mas o polling continua checando
+
     await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
-    block.querySelector(".match-grid").innerHTML = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+    const cardsHtml = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+    if (block) {
+      block.querySelector(".match-grid").innerHTML = cardsHtml;
+    } else {
+      // nenhum jogo estava ao vivo antes — insere o bloco novo no topo
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = `<div class="date-group" id="upcoming-live-block"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${cardsHtml}</div></div>`;
+      upcomingBox.prepend(wrapper.firstElementChild);
+      block = $("#upcoming-live-block");
+    }
     block.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
   } catch { /* mantém o último estado se uma atualização falhar */ }
 }
@@ -955,6 +987,15 @@ function switchMainView(view) {
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
   $("#view-heroes").classList.toggle("hidden", view !== "heroes");
   if (view === "torneios" && !currentLeague) startOverviewLivePolling(); else stopOverviewLivePolling();
+  if (view === "torneios" && currentLeague) {
+    startStandingsPolling();
+    if ($("#tab-results") && !$("#tab-results").classList.contains("hidden")) startResultsPolling();
+    if ($("#tab-live") && !$("#tab-live").classList.contains("hidden")) startLivePolling();
+  } else {
+    stopStandingsPolling();
+    stopResultsPolling();
+    stopLivePolling();
+  }
   if (view === "ranking" && !window.__rankingLoadedOnce) {
     window.__rankingLoadedOnce = true;
     loadRanking("europe");
