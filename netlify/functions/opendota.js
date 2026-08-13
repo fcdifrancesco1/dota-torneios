@@ -16,6 +16,7 @@ function isAllowed(path) {
     /^matches\/\d+$/.test(path) ||
     /^teams\/\d+$/.test(path) ||
     /^players\/\d+$/.test(path) ||
+    /^players\/\d+\/matches\?league_id=\d+$/.test(path) ||
     path === "proMatches" ||
     path === "constants/heroes" ||
     path === "constants/items"
