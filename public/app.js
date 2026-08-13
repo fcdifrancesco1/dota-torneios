@@ -316,23 +316,27 @@ async function loadLive() {
     const data = await liveFetch(currentLeague.leagueid);
     const games = (data && data.result && data.result.games) || [];
     if (!games.length) { box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo agora neste torneio.</div>`; return; }
+    await ensureTeamLogos(games.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
     box.innerHTML = `<div class="match-grid">${games.map((g, i) => renderLiveCard(g, i)).join("")}</div>`;
     box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(games[+el.dataset.live])));
   } catch { box.innerHTML = `<div class="empty-state">Não foi possível carregar partidas ao vivo.</div>`; }
 }
 function renderLiveCard(g, idx) {
   const sb = g.scoreboard;
+  const radiantId = g.radiant_team && g.radiant_team.team_id;
+  const direId = g.dire_team && g.dire_team.team_id;
   const radiantName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const direName = (g.dire_team && g.dire_team.team_name) || "Dire";
+  const logos = lsGet("dota:teamLogos", {});
   const rScore = sb && sb.radiant ? sb.radiant.score : 0;
   const dScore = sb && sb.dire ? sb.dire.score : 0;
   const minutes = sb ? Math.floor(sb.duration / 60) : 0;
   return `<div class="match-card" data-live="${idx}">
       <span class="live-badge">● Ao vivo · ${minutes}min</span>
       <div class="match-teams" style="margin-top:8px">
-        <span class="team-name">${radiantName}</span>
+        <div class="team-side">${teamLogoImg(logos[radiantId], radiantName)}<span class="team-name">${radiantName}</span></div>
         <span class="score">${rScore} - ${dScore}</span>
-        <span class="team-name" style="text-align:right">${direName}</span>
+        <div class="team-side team-side-right"><span class="team-name">${direName}</span>${teamLogoImg(logos[direId], direName)}</div>
       </div>
     </div>`;
 }
@@ -569,13 +573,7 @@ function computeGroupClustersFromSeries(series) {
 
 function renderStandingsTable(series) {
   const body = $("#standings-body");
-  const clusters = computeGroupClustersFromSeries(series);
   const allRows = computeStandingsFromSeries(series);
-  const byId = {}; allRows.forEach((r) => (byId[r.id] = r));
-
-  // só vale a pena separar em grupos visuais se houver mais de 1 cluster com 2+ times
-  const realGroups = clusters.filter((c) => c.length > 1);
-  const useGroups = realGroups.length > 1;
 
   const renderGroup = (rows, label) => {
     const rowsHtml = rows.map((r, i) =>
@@ -586,23 +584,17 @@ function renderStandingsTable(series) {
 
   if (!allRows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
 
-  if (useGroups) {
-    const letters = "ABCDEFGH";
-    let html = "";
-    realGroups
-      .map((ids) => ids.map((id) => byId[id]).filter(Boolean).sort((a, b) => b.seriesW - a.seriesW || (b.mapsW - b.mapsL) - (a.mapsW - a.mapsL)))
-      .sort((a, b) => b.length - a.length)
-      .forEach((rows, i) => { html += renderGroup(rows, `Grupo ${letters[i] || i + 1}`); });
-    body.innerHTML = html;
-  } else {
-    body.innerHTML = renderGroup(allRows, null);
-  }
+  // Removemos a separação automática em "Grupo A/B/C..." — ela usava conectividade (quem já se
+  // enfrentou) pra adivinhar grupos, mas isso dá falso positivo em formatos de liga/Swiss (como a
+  // TI), onde nem todo mundo jogou contra todo mundo ainda mas não existe divisão de grupo real.
+  body.innerHTML = renderGroup(allRows, null);
 }
 
 async function loadStandingsFor(leagueId, leagueName, isDefault) {
   const body = $("#standings-body");
   $("#standings-title").textContent = "Classificação";
-  $("#standings-sub").textContent = isDefault ? `${leagueName} (último encerrado)` : leagueName;
+  const suffix = isDefault === "live" ? " (ao vivo agora)" : isDefault ? " (último encerrado)" : "";
+  $("#standings-sub").textContent = `${leagueName}${suffix}`;
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
   try {
     let series;
@@ -620,7 +612,31 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
 
 /* ---------- visão geral (sem torneio selecionado) ---------- */
 async function loadCenterDefault() {
+  window.__featuredLeague = await determineFeaturedLeague();
   await Promise.all([loadUpcoming(), loadRecentResults()]);
+}
+
+// escolhe o torneio "em destaque": prioriza um torneio grande com partida ao vivo agora;
+// se nenhum tiver, cai pro último torneio encerrado (mesmo critério de antes).
+async function determineFeaturedLeague() {
+  let liveGames = [];
+  try {
+    const liveData = await liveFetch(); // sem league_id = todas as partidas de liga ao vivo agora
+    const allLive = (liveData && liveData.result && liveData.result.games) || [];
+    await ensureLeaguesLoaded().catch(() => {});
+    liveGames = allLive.filter((g) => isTopTierLeague(g.league_id)); // só torneios premium/profissionais
+  } catch { /* segue sem partidas ao vivo se essa chamada falhar */ }
+
+  if (liveGames.length) {
+    const counts = {};
+    liveGames.forEach((g) => { counts[g.league_id] = (counts[g.league_id] || 0) + 1; });
+    const bestId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    return { leagueid: bestId, name: leagueNameById(bestId), isLive: true, liveGames };
+  }
+
+  const recent = await computeRecentlyPlayedLeagues();
+  if (recent.length) return { leagueid: recent[0].leagueid, name: recent[0].name, isLive: false, liveGames: [] };
+  return null;
 }
 
 async function loadUpcoming() {
@@ -628,18 +644,14 @@ async function loadUpcoming() {
   const label = $("#next-league-name");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
 
+  const featured = window.__featuredLeague;
   let liveHtml = "";
-  let liveGames = [];
-  try {
-    const liveData = await liveFetch(); // sem league_id = todas as partidas de liga ao vivo agora
-    const allLive = (liveData && liveData.result && liveData.result.games) || [];
-    await ensureLeaguesLoaded().catch(() => {});
-    liveGames = allLive.filter((g) => isTopTierLeague(g.league_id)); // só torneios premium/profissionais
-    if (liveGames.length) {
-      const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
-      liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
-    }
-  } catch { /* segue sem a seção de ao vivo se essa chamada falhar */ }
+  const liveGames = (featured && featured.isLive) ? featured.liveGames : [];
+  if (liveGames.length) {
+    await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
+    const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
+    liveHtml = `<div class="date-group"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
+  }
 
   let scheduledHtml = "";
   try {
@@ -719,28 +731,31 @@ async function loadRecentResults() {
   const label = $("#last-league-name");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
   try {
-    const recent = await computeRecentlyPlayedLeagues();
-    if (!recent.length) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
-    const best = recent[0];
-    label.textContent = `— ${best.name}`;
+    const featured = window.__featuredLeague;
+    if (!featured) { box.innerHTML = `<div class="empty-state">Nenhum torneio premium/profissional recente encontrado.</div>`; return; }
+    label.textContent = `— ${featured.name}${featured.isLive ? " (em andamento)" : ""}`;
 
-    let matches = await odFetch(`leagues/${best.leagueid}/matches`);
+    let matches = await odFetch(`leagues/${featured.leagueid}/matches`);
     matches = await enrichTeamNames(matches);
     matches.sort((a, b) => b.start_time - a.start_time);
 
     let series;
     try {
-      series = attachOpenDotaGames(await fetchStratzSeriesForLeague(best.leagueid), matches);
+      series = attachOpenDotaGames(await fetchStratzSeriesForLeague(featured.leagueid), matches);
     } catch {
       series = groupIntoSeries(matches); // fallback: nosso agrupamento por conectividade
     }
     series = series.sort((a, b) => b.startTime - a.startTime).slice(0, 8);
-    box.innerHTML = await renderSeriesGrouped(series);
-    attachSeriesClicks(box, series);
+    if (!series.length) { box.innerHTML = `<div class="empty-state">Esse torneio ainda não tem resultados.</div>`; }
+    else {
+      box.innerHTML = await renderSeriesGrouped(series);
+      attachSeriesClicks(box, series);
+    }
 
-    // guarda o id pra classificação padrão usar o mesmo torneio
-    window.__lastFinishedLeagueId = best.leagueid;
-    window.__lastFinishedLeagueName = best.name;
+    // guarda pra classificação padrão usar o mesmo torneio
+    window.__lastFinishedLeagueId = featured.leagueid;
+    window.__lastFinishedLeagueName = featured.name;
+    window.__lastFinishedIsLive = featured.isLive;
   } catch {
     box.innerHTML = `<div class="empty-state">Não foi possível carregar os últimos resultados.</div>`;
   }
@@ -749,7 +764,7 @@ async function loadRecentResults() {
 async function loadDefaultStandings() {
   if (window.__lastFinishedLeagueId) {
     cachedMatches = null;
-    await loadStandingsFor(window.__lastFinishedLeagueId, window.__lastFinishedLeagueName, true);
+    await loadStandingsFor(window.__lastFinishedLeagueId, window.__lastFinishedLeagueName, window.__lastFinishedIsLive ? "live" : true);
   } else {
     $("#standings-sub").textContent = "";
     $("#standings-body").innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
