@@ -347,16 +347,63 @@ function getSidePlayers(sb, side) {
   if (!s) return [];
   return s.players || s.player || [];
 }
+let liveMinimapTimer = null;
 async function openLiveGame(g) {
   $("#match-modal").classList.remove("hidden");
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando...</div>`;
+  stopLiveMinimap();
   try {
     const sb = g.scoreboard || {};
     const rPlayers = getSidePlayers(sb, "radiant");
     const dPlayers = getSidePlayers(sb, "dire");
     await enrichPlayerNames([...rPlayers, ...dPlayers]);
     $("#match-detail").innerHTML = renderLiveMatchDetail(g);
+    startLiveMinimap(g);
   } catch { $("#match-detail").innerHTML = `<div class="empty-state">Erro ao carregar a partida ao vivo.</div>`; }
+}
+function stopLiveMinimap() {
+  if (liveMinimapTimer) clearInterval(liveMinimapTimer);
+  liveMinimapTimer = null;
+}
+function startLiveMinimap(g) {
+  const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
+  const dName = (g.dire_team && g.dire_team.team_name) || "Dire";
+  const leagueId = g.league_id;
+  const refresh = async () => {
+    if ($("#match-modal").classList.contains("hidden")) { stopLiveMinimap(); return; }
+    try {
+      const data = await liveFetch(leagueId);
+      const games = (data && data.result && data.result.games) || [];
+      const match = games.find((x) =>
+        (x.radiant_team && x.radiant_team.team_name) === rName && (x.dire_team && x.dire_team.team_name) === dName
+      );
+      if (!match) { stopLiveMinimap(); return; } // partida acabou ou saiu do ar
+      renderMinimapDots(match.scoreboard);
+    } catch { /* mantém o último estado se uma atualização falhar */ }
+  };
+  renderMinimapDots(g.scoreboard);
+  liveMinimapTimer = setInterval(refresh, 6000);
+}
+// aproximação dos limites do mapa do Dota 2 em coordenadas de mundo (mapa ~quadrado, centrado em 0,0)
+const MAP_MIN = -8288, MAP_MAX = 8288;
+function worldToPct(x, y) {
+  const fx = (x - MAP_MIN) / (MAP_MAX - MAP_MIN);
+  const fy = 1 - (y - MAP_MIN) / (MAP_MAX - MAP_MIN); // eixo Y do jogo cresce pra "cima" (norte)
+  return { left: `${Math.min(100, Math.max(0, fx * 100)).toFixed(1)}%`, top: `${Math.min(100, Math.max(0, fy * 100)).toFixed(1)}%` };
+}
+function renderMinimapDots(sb) {
+  const box = $("#live-minimap-dots");
+  if (!box || !sb) return;
+  const rPlayers = getSidePlayers(sb, "radiant");
+  const dPlayers = getSidePlayers(sb, "dire");
+  const dot = (p, cls) => {
+    if (p.position_x == null || p.position_y == null) return "";
+    const pos = worldToPct(p.position_x, p.position_y);
+    return `<div class="minimap-hero ${cls}" style="left:${pos.left};top:${pos.top}" title="${heroName(p.hero_id)}">
+      <img src="${heroImg(p.hero_id)}" alt="">
+    </div>`;
+  };
+  box.innerHTML = rPlayers.map((p) => dot(p, "minimap-radiant")).join("") + dPlayers.map((p) => dot(p, "minimap-dire")).join("");
 }
 function renderLiveMatchDetail(g) {
   const sb = g.scoreboard || {};
@@ -390,6 +437,8 @@ function renderLiveMatchDetail(g) {
       <div>${rName} <span class="score">${(sb.radiant && sb.radiant.score) || 0} - ${(sb.dire && sb.dire.score) || 0}</span> ${dName}</div>
       <div class="match-meta" style="justify-content:center;gap:16px"><span>${minutes} min (em andamento)</span></div>
     </div>
+    <div class="team-block-title">Mapa (atualiza a cada ~6s — posições aproximadas)</div>
+    <div id="live-minimap"><div class="minimap-corner-r"></div><div class="minimap-corner-d"></div><div id="live-minimap-dots"></div></div>
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
     <div class="picks-row">${picksBansBlock("radiant", true)}${picksBansBlock("radiant", false)}</div>
     <div class="team-block-title">Picks &amp; bans — ${dName}</div>
@@ -797,6 +846,7 @@ $("#series-modal-backdrop").addEventListener("click", () => $("#series-modal").c
 async function openMatch(matchId) {
   $("#match-modal").classList.remove("hidden");
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando partida...</div>`;
+  stopLiveMinimap();
   try {
     const m = await odFetch(`matches/${matchId}`);
     await enrichTeamNames([m]);
@@ -804,8 +854,8 @@ async function openMatch(matchId) {
     $("#match-detail").innerHTML = renderMatchDetail(m);
   } catch { $("#match-detail").innerHTML = `<div class="empty-state">Erro ao carregar detalhe da partida.</div>`; }
 }
-$("#btn-close-match").addEventListener("click", () => $("#match-modal").classList.add("hidden"));
-$("#match-modal-backdrop").addEventListener("click", () => $("#match-modal").classList.add("hidden"));
+$("#btn-close-match").addEventListener("click", () => { $("#match-modal").classList.add("hidden"); stopLiveMinimap(); });
+$("#match-modal-backdrop").addEventListener("click", () => { $("#match-modal").classList.add("hidden"); stopLiveMinimap(); });
 
 function renderMatchDetail(m) {
   const rName = m.radiant_name || "Radiant", dName = m.dire_name || "Dire";
