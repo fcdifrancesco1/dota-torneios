@@ -275,6 +275,7 @@ document.addEventListener("click", (e) => {
 function selectLeague(league) {
   if (!league) return;
   stopOverviewLivePolling();
+  stopOverviewResultsPolling();
   currentLeague = { leagueid: league.leagueid, name: league.name };
   cachedMatches = null;
 
@@ -299,6 +300,7 @@ $("#btn-change-league").addEventListener("click", () => {
   loadCenterDefault();
   loadDefaultStandings();
   startOverviewLivePolling();
+  startOverviewResultsPolling();
 });
 
 /* ---------- abas (torneio selecionado) ---------- */
@@ -705,6 +707,15 @@ let overviewLiveTimer = null;
 function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTimer = setInterval(refreshOverviewLive, 20000); }
 function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overviewLiveTimer); overviewLiveTimer = null; }
 
+// "Últimos resultados" e a classificação padrão mudam mais devagar (série em andamento, jogos
+// processados pela OpenDota/STRATZ) — atualiza de tempos em tempos em vez de só no carregamento.
+let overviewResultsTimer = null;
+function startOverviewResultsPolling() {
+  stopOverviewResultsPolling();
+  overviewResultsTimer = setInterval(() => { loadRecentResults(); loadDefaultStandings(); }, 60000);
+}
+function stopOverviewResultsPolling() { if (overviewResultsTimer) clearInterval(overviewResultsTimer); overviewResultsTimer = null; }
+
 async function refreshOverviewLive() {
   const upcomingBox = $("#upcoming-list");
   if (!upcomingBox) return;
@@ -986,7 +997,8 @@ function switchMainView(view) {
   $("#layout").classList.toggle("hidden", view !== "torneios");
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
   $("#view-heroes").classList.toggle("hidden", view !== "heroes");
-  if (view === "torneios" && !currentLeague) startOverviewLivePolling(); else stopOverviewLivePolling();
+  if (view === "torneios" && !currentLeague) { startOverviewLivePolling(); startOverviewResultsPolling(); }
+  else { stopOverviewLivePolling(); stopOverviewResultsPolling(); }
   if (view === "torneios" && currentLeague) {
     startStandingsPolling();
     if ($("#tab-results") && !$("#tab-results").classList.contains("hidden")) startResultsPolling();
@@ -1172,4 +1184,5 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   await loadCenterDefault();
   await loadDefaultStandings();
   startOverviewLivePolling();
+  startOverviewResultsPolling();
 })();
