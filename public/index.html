@@ -20,16 +20,13 @@
       <span class="logo-dot"></span>
       <h1>Torneios Dota 2</h1>
     </div>
-    <button id="theme-toggle" type="button" aria-label="Alternar tema" aria-pressed="false">
-      <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
-    </button>
+    <button id="theme-toggle" aria-label="Alternar tema">🌙</button>
   </header>
 
-  <nav id="main-tabs" role="tablist" aria-label="Seções principais">
-    <button class="main-tab-btn active" type="button" data-view="torneios" role="tab" aria-selected="true" aria-controls="layout">Torneios</button>
-    <button class="main-tab-btn" type="button" data-view="ranking" role="tab" aria-selected="false" aria-controls="view-ranking">Ranking MMR</button>
-    <button class="main-tab-btn" type="button" data-view="heroes" role="tab" aria-selected="false" aria-controls="view-heroes">Heróis</button>
+  <nav id="main-tabs">
+    <button class="main-tab-btn active" data-view="torneios">Torneios</button>
+    <button class="main-tab-btn" data-view="ranking">Ranking MMR</button>
+    <button class="main-tab-btn" data-view="heroes">Heróis</button>
   </nav>
 
   <div id="layout">
@@ -39,10 +36,9 @@
       <div class="search-wrap">
         <div class="search-box">
           <label for="league-search">Buscar torneio</label>
-          <input id="league-search" type="text" placeholder="ex: International 2026, ESL..." autocomplete="off"
-            role="combobox" aria-expanded="false" aria-controls="league-results" aria-autocomplete="list" />
+          <input id="league-search" type="text" placeholder="ex: International 2026, ESL..." autocomplete="off" />
         </div>
-        <ul id="league-results" role="listbox"></ul>
+        <ul id="league-results"></ul>
       </div>
       <div id="league-recent"></div>
     </aside>
@@ -53,27 +49,31 @@
       <!-- estado padrão: nenhum torneio selecionado -->
       <section id="center-default">
         <h2>Próximas partidas <span id="next-league-name" class="section-sub"></span></h2>
-        <div id="upcoming-list"><div class="match-grid"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>
+        <div id="upcoming-list"><div class="empty-state">Carregando...</div></div>
 
         <h2>Últimos resultados <span id="last-league-name" class="section-sub"></span></h2>
-        <div id="recent-results-list"><div class="match-grid"><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div></div>
+        <div id="recent-results-list"><div class="empty-state">Carregando...</div></div>
       </section>
 
       <!-- estado: torneio selecionado -->
       <section id="center-league" class="hidden">
         <div id="league-header">
           <h2 id="league-title"></h2>
-          <button id="btn-change-league" type="button">← Visão geral</button>
+          <button id="btn-change-league">← Visão geral</button>
         </div>
-        <nav id="tabs" role="tablist" aria-label="Detalhe do torneio">
-          <button class="tab-btn active" type="button" data-tab="live" role="tab" aria-selected="true" aria-controls="tab-live">Ao vivo</button>
-          <button class="tab-btn" type="button" data-tab="results" role="tab" aria-selected="false" aria-controls="tab-results">Resultados</button>
+        <nav id="tabs">
+          <button class="tab-btn active" data-tab="live">Ao vivo</button>
+          <button class="tab-btn" data-tab="results">Resultados</button>
+          <button class="tab-btn" data-tab="stats">Estatísticas</button>
         </nav>
         <div id="tab-live" class="tab-panel">
           <div id="live-list"></div>
         </div>
         <div id="tab-results" class="tab-panel hidden">
           <div id="results-list"></div>
+        </div>
+        <div id="tab-stats" class="tab-panel hidden">
+          <div id="stats-list"></div>
         </div>
       </section>
 
@@ -93,11 +93,11 @@
 
   <!-- TELA: RANKING MMR -->
   <section id="view-ranking" class="hidden">
-    <nav id="region-tabs" role="tablist" aria-label="Região do ranking">
-      <button class="region-tab-btn" type="button" data-region="americas" role="tab" aria-selected="false">Américas</button>
-      <button class="region-tab-btn active" type="button" data-region="europe" role="tab" aria-selected="true">Europa</button>
-      <button class="region-tab-btn" type="button" data-region="china" role="tab" aria-selected="false">China</button>
-      <button class="region-tab-btn" type="button" data-region="se_asia" role="tab" aria-selected="false">Sudeste Asiático</button>
+    <nav id="region-tabs">
+      <button class="region-tab-btn" data-region="americas">Américas</button>
+      <button class="region-tab-btn active" data-region="europe">Europa</button>
+      <button class="region-tab-btn" data-region="china">China</button>
+      <button class="region-tab-btn" data-region="se_asia">Sudeste Asiático</button>
     </nav>
     <div id="ranking-updated" class="section-sub"></div>
     <table id="ranking-table">
@@ -123,29 +123,25 @@
   </section>
 
   <!-- MODAL: detalhe da série -->
-  <div id="series-modal" class="hidden" role="dialog" aria-modal="true" aria-labelledby="series-title">
+  <div id="series-modal" class="hidden">
     <div id="series-modal-backdrop"></div>
     <div id="series-modal-sheet">
-      <button id="btn-close-series" type="button" aria-label="Fechar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </button>
+      <button id="btn-close-series">✕</button>
       <h2 id="series-title"></h2>
       <div id="series-games"></div>
     </div>
   </div>
 
   <!-- MODAL: detalhe da partida -->
-  <div id="match-modal" class="hidden" role="dialog" aria-modal="true" aria-label="Detalhe da partida">
+  <div id="match-modal" class="hidden">
     <div id="match-modal-backdrop"></div>
     <div id="match-modal-sheet">
-      <button id="btn-close-match" type="button" aria-label="Fechar">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-      </button>
+      <button id="btn-close-match">✕</button>
       <div id="match-detail"></div>
     </div>
   </div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="toast"></div>
 </div>
 
 <script src="./app.js"></script>

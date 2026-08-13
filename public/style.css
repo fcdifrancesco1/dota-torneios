@@ -301,3 +301,22 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
   position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); background:var(--card); color:var(--ink-tertiary);
   font-size:9px; font-weight:700; padding:1px 4px; border-radius:5px; border:1px solid var(--line); white-space:nowrap;
 }
+
+/* Estatísticas do torneio */
+#stats-progress{ padding:20px; text-align:center; color:var(--ink-tertiary); font-size:13px; }
+#stats-progress .bar{ width:100%; max-width:320px; height:6px; background:var(--line); border-radius:4px; margin:10px auto 0; overflow:hidden; }
+#stats-progress .bar-fill{ height:100%; background:var(--gold); transition:width .2s ease; }
+.stats-table-wrap{ overflow-x:auto; }
+#stats-table{ width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
+#stats-table th, #stats-table td{ padding:7px 9px; border-bottom:1px solid var(--line); text-align:center; }
+#stats-table thead tr:first-child th{ font-size:10px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-tertiary); border-bottom:1px solid var(--line-strong); }
+#stats-table thead tr:last-child th{ font-size:9px; color:var(--ink-tertiary); font-weight:700; padding-top:4px; padding-bottom:6px; }
+#stats-table td:first-child, #stats-table th:first-child{ text-align:left; }
+.stats-hero-cell{ display:flex; align-items:center; gap:8px; font-weight:700; color:var(--ink-soft); }
+.stats-hero-cell img{ width:28px; height:28px; border-radius:6px; }
+.stats-group-sep{ border-left:1px solid var(--line); }
+.stats-details-btn{
+  border:1px solid var(--line); background:var(--card); color:var(--ink-tertiary); border-radius:7px;
+  padding:4px 10px; cursor:pointer; font-size:11px; font-family:inherit;
+}
+.stats-details-btn:hover{ border-color:var(--gold); color:var(--ink-soft); }

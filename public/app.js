@@ -308,6 +308,7 @@ function switchTab(tab) {
   $(`#tab-${tab}`).classList.remove("hidden");
   if (tab === "live") { loadLive(); startLivePolling(); } else stopLivePolling();
   if (tab === "results") { loadResults(); startResultsPolling(); } else stopResultsPolling();
+  if (tab === "stats") loadStats();
 }
 $$(".tab-btn").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
 
@@ -1161,6 +1162,136 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   `;
   panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => renderHeroDetail(heroId, stats, hs, btn.dataset.pos));
+  });
+}
+
+/* ---------- Estatísticas do torneio (heróis mais usados) ---------- */
+let statsRequestId = 0;
+async function loadStats() {
+  const myId = ++statsRequestId;
+  const box = $("#stats-list");
+  if (!currentLeague) return;
+  const leagueId = Number(currentLeague.leagueid);
+
+  // cache de 10min por torneio — evita reprocessar dezenas/centenas de partidas toda vez que a aba é aberta
+  const cacheKey = `dota:stats:${leagueId}`;
+  const cached = lsGet(cacheKey, null);
+  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) {
+    renderStatsTable(cached.rows, cached.totalMatches);
+    return;
+  }
+
+  box.innerHTML = `<div class="empty-state">Carregando picks...</div>`;
+  try {
+    const [dataAll, dataRadiant, dataDire] = await Promise.all([
+      stratzQuery(
+        `query($leagueId:Int) { league(id:$leagueId){ matchesGroupBy(request:{playerList:ALL, groupBy:HERO}){ ... on MatchGroupByHeroType { heroId matchCount winCount } } } }`,
+        { leagueId }
+      ),
+      stratzQuery(
+        `query($leagueId:Int) { league(id:$leagueId){ matchesGroupBy(request:{playerList:ALL, groupBy:HERO, isRadiant:true}){ ... on MatchGroupByHeroType { heroId matchCount winCount } } } }`,
+        { leagueId }
+      ),
+      stratzQuery(
+        `query($leagueId:Int) { league(id:$leagueId){ matchesGroupBy(request:{playerList:ALL, groupBy:HERO, isRadiant:false}){ ... on MatchGroupByHeroType { heroId matchCount winCount } } } }`,
+        { leagueId }
+      ),
+    ]);
+    if (myId !== statsRequestId) return;
+
+    const table = {};
+    const ensure = (id) => (table[id] = table[id] || {
+      heroId: id, pickM: 0, pickW: 0, radM: 0, radW: 0, direM: 0, direW: 0, banC: 0,
+    });
+    (dataAll.league.matchesGroupBy || []).forEach((h) => { const r = ensure(h.heroId); r.pickM = h.matchCount; r.pickW = h.winCount; });
+    (dataRadiant.league.matchesGroupBy || []).forEach((h) => { const r = ensure(h.heroId); r.radM = h.matchCount; r.radW = h.winCount; });
+    (dataDire.league.matchesGroupBy || []).forEach((h) => { const r = ensure(h.heroId); r.direM = h.matchCount; r.direW = h.winCount; });
+
+    // busca a lista de partidas do torneio (via STRATZ, com fallback pra OpenDota) pra contar banimentos
+    let matchIds = [];
+    try {
+      const seriesData = await fetchStratzSeriesForLeague(leagueId);
+      matchIds = seriesData.flatMap((s) => s.gameIds).map((id) => Number(id));
+    } catch {
+      const matches = await odFetch(`leagues/${leagueId}/matches`);
+      matchIds = matches.map((m) => m.match_id);
+    }
+    const totalMatches = matchIds.length;
+
+    box.innerHTML = `<div id="stats-progress">Carregando banimentos... <div class="bar"><div class="bar-fill" id="stats-bar-fill" style="width:0%"></div></div><div id="stats-bar-text">0 / ${totalMatches}</div></div>`;
+
+    // processa em lotes pra não estourar limite de chamadas de uma vez só
+    const BATCH = 6;
+    let done = 0;
+    for (let i = 0; i < matchIds.length; i += BATCH) {
+      if (myId !== statsRequestId) return; // usuário saiu da aba/torneio no meio do processo
+      const batch = matchIds.slice(i, i + BATCH);
+      await Promise.all(batch.map(async (id) => {
+        try {
+          const r = await stratzQuery(`query($id:Long!){ match(id:$id){ pickBans { heroId isPick } } }`, { id });
+          const pb = (r && r.match && r.match.pickBans) || [];
+          pb.forEach((p) => { if (!p.isPick) { const row = ensure(p.heroId); row.banC++; } });
+        } catch { /* ignora partida que falhar e segue o processamento */ }
+      }));
+      done += batch.length;
+      const fill = $("#stats-bar-fill"), text = $("#stats-bar-text");
+      if (fill) fill.style.width = `${Math.round((done / matchIds.length) * 100)}%`;
+      if (text) text.textContent = `${done} / ${totalMatches}`;
+    }
+    if (myId !== statsRequestId) return;
+
+    const rows = Object.values(table).sort((a, b) => b.pickM - a.pickM);
+    lsSet(cacheKey, { ts: Date.now(), rows, totalMatches });
+    renderStatsTable(rows, totalMatches);
+  } catch (err) {
+    if (myId !== statsRequestId) return;
+    box.innerHTML = `<div class="empty-state" style="white-space:normal">Erro ao carregar estatísticas.<br>${err.message || ""}</div>`;
+  }
+}
+function statsPct(count, total) { return total ? `${Math.round((count / total) * 100)}%` : "-"; }
+function statsWR(w, m) { return m ? `${Math.round((w / m) * 100)}%` : "-"; }
+function renderStatsTable(rows, totalMatches) {
+  const box = $("#stats-list");
+  if (!rows.length) { box.innerHTML = `<div class="empty-state">Sem dados de picks pra esse torneio ainda.</div>`; return; }
+  const rowsHtml = rows.map((r) => {
+    const pb = r.pickM + r.banC;
+    return `<tr>
+      <td><div class="stats-hero-cell"><img src="${heroImg(r.heroId)}" alt="">${heroName(r.heroId)}</div></td>
+      <td>${r.pickM}</td><td>${r.pickW}</td><td>${r.pickM - r.pickW}</td><td>${statsWR(r.pickW, r.pickM)}</td><td>${statsPct(r.pickM, totalMatches)}</td>
+      <td class="stats-group-sep">${r.radM}</td><td>${r.radW}</td><td>${r.radM - r.radW}</td><td>${statsWR(r.radW, r.radM)}</td>
+      <td class="stats-group-sep">${r.direM}</td><td>${r.direW}</td><td>${r.direM - r.direW}</td><td>${statsWR(r.direW, r.direM)}</td>
+      <td class="stats-group-sep">${r.banC}</td><td>${statsPct(r.banC, totalMatches)}</td>
+      <td class="stats-group-sep">${pb}</td><td>${statsPct(pb, totalMatches)}</td>
+      <td><button class="stats-details-btn" data-hero="${r.heroId}">Ver</button></td>
+    </tr>`;
+  }).join("");
+  box.innerHTML = `<div class="stats-table-wrap"><table id="stats-table">
+    <thead>
+      <tr>
+        <th rowspan="2">Herói</th>
+        <th colspan="5">Picks</th>
+        <th colspan="4">Radiant</th>
+        <th colspan="4">Dire</th>
+        <th colspan="2">Bans</th>
+        <th colspan="2">Picks &amp; Bans</th>
+        <th rowspan="2"></th>
+      </tr>
+      <tr>
+        <th>Σ</th><th>V</th><th>D</th><th>%V</th><th>%T</th>
+        <th class="stats-group-sep">Σ</th><th>V</th><th>D</th><th>%V</th>
+        <th class="stats-group-sep">Σ</th><th>V</th><th>D</th><th>%V</th>
+        <th class="stats-group-sep">Σ</th><th>%T</th>
+        <th class="stats-group-sep">Σ</th><th>%T</th>
+      </tr>
+    </thead>
+    <tbody>${rowsHtml}</tbody>
+  </table></div>`;
+  box.querySelectorAll(".stats-details-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchMainView("heroes");
+      const heroBtn = $(`.hero-grid-icon[data-hero="${btn.dataset.hero}"]`);
+      if (heroBtn) heroBtn.click();
+    });
   });
 }
 
