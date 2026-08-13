@@ -126,6 +126,23 @@ async function ensureTeamLogos(teamIds) {
   }
   return cache;
 }
+// índice nome→logo (só usado pela agenda manual, onde a gente só tem o nome digitado, não o id)
+function normalizeTeamName(name) { return String(name || "").trim().toLowerCase(); }
+async function ensureTeamsByNameIndex() {
+  const cached = lsGet("dota:teamsByName", null);
+  if (cached && Date.now() - cached.ts < 24 * 3600 * 1000) return cached.data;
+  const list = await odFetch("teams");
+  const index = {};
+  (list || []).forEach((t) => {
+    if (t.name) index[normalizeTeamName(t.name)] = t.logo_url || null;
+    if (t.tag) index[normalizeTeamName(t.tag)] = index[normalizeTeamName(t.tag)] || t.logo_url || null;
+  });
+  lsSet("dota:teamsByName", { ts: Date.now(), data: index });
+  return index;
+}
+function teamLogoByName(index, name) {
+  return index[normalizeTeamName(name)] || null;
+}
 function teamLogoImg(logoUrl, teamName) {
   if (!logoUrl) return `<span class="team-logo team-logo-empty"></span>`;
   return `<img class="team-logo" src="${logoUrl}" alt="${teamName || ""}">`;
@@ -770,6 +787,41 @@ async function determineFeaturedLeague() {
   return null;
 }
 
+// agenda editada manualmente por você (public/agenda.json) — usada como fonte principal de
+// "próximas partidas" já que nenhuma API pública tem essa informação de forma confiável hoje.
+async function loadManualAgenda() {
+  try {
+    const res = await fetch(`/agenda.json?_=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return "";
+    const items = await res.json();
+    if (!Array.isArray(items) || !items.length) return "";
+
+    const now = Date.now();
+    const future = items
+      .filter((it) => it.data && new Date(it.data).getTime() > now)
+      .sort((a, b) => new Date(a.data) - new Date(b.data));
+    if (!future.length) return "";
+
+    const teamIndex = await ensureTeamsByNameIndex().catch(() => ({}));
+    const cardsHtml = future.map((it) => {
+      const logoA = teamLogoByName(teamIndex, it.timeA);
+      const logoB = teamLogoByName(teamIndex, it.timeB);
+      const when = new Date(it.data).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      return `<div class="match-card" style="cursor:default">
+        <div class="match-teams">
+          <div class="team-side">${teamLogoImg(logoA, it.timeA)}<span class="team-name">${it.timeA || "A definir"}</span></div>
+          <span class="score" style="font-size:13px">${it.formato || "vs"}</span>
+          <div class="team-side team-side-right"><span class="team-name">${it.timeB || "A definir"}</span>${teamLogoImg(logoB, it.timeB)}</div>
+        </div>
+        <div class="match-meta"><span>${when}</span><span>${it.fase || ""}</span></div>
+      </div>`;
+    }).join("");
+
+    if (future[0].torneio) $("#next-league-name").textContent = `— ${future[0].torneio}`;
+    return `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml}</div></div>`;
+  } catch { return ""; } // agenda.json ausente, vazio ou com erro de formato — segue pras outras fontes
+}
+
 async function loadUpcoming() {
   const box = $("#upcoming-list");
   const label = $("#next-league-name");
@@ -784,28 +836,31 @@ async function loadUpcoming() {
     liveHtml = `<div class="date-group" id="upcoming-live-block"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
   }
 
-  let scheduledHtml = "";
-  try {
-    const data = await scheduleFetch(21);
-    const games = (data && data.result && data.result.games) || [];
-    if (games.length) {
-      await ensureLeaguesLoaded().catch(() => {});
-      const byLeague = {};
-      games.forEach((g) => { (byLeague[g.league_id] = byLeague[g.league_id] || []).push(g); });
-      let bestLeagueId = null, bestTime = Infinity;
-      Object.entries(byLeague).forEach(([lid, list]) => {
-        if (!isTopTierLeague(lid)) return;
-        const min = Math.min(...list.map((g) => g.starttime || Infinity));
-        if (min < bestTime) { bestTime = min; bestLeagueId = lid; }
-      });
-      if (bestLeagueId) {
-        label.textContent = `— ${leagueNameById(bestLeagueId)}`;
-        const nextGames = byLeague[bestLeagueId].sort((a, b) => (a.starttime || 0) - (b.starttime || 0)).slice(0, 10);
-        const cardsHtml = await Promise.all(nextGames.map(renderUpcomingCard));
-        scheduledHtml = `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml.join("")}</div></div>`;
+  let scheduledHtml = await loadManualAgenda();
+
+  if (!scheduledHtml) {
+    try {
+      const data = await scheduleFetch(21);
+      const games = (data && data.result && data.result.games) || [];
+      if (games.length) {
+        await ensureLeaguesLoaded().catch(() => {});
+        const byLeague = {};
+        games.forEach((g) => { (byLeague[g.league_id] = byLeague[g.league_id] || []).push(g); });
+        let bestLeagueId = null, bestTime = Infinity;
+        Object.entries(byLeague).forEach(([lid, list]) => {
+          if (!isTopTierLeague(lid)) return;
+          const min = Math.min(...list.map((g) => g.starttime || Infinity));
+          if (min < bestTime) { bestTime = min; bestLeagueId = lid; }
+        });
+        if (bestLeagueId) {
+          label.textContent = `— ${leagueNameById(bestLeagueId)}`;
+          const nextGames = byLeague[bestLeagueId].sort((a, b) => (a.starttime || 0) - (b.starttime || 0)).slice(0, 10);
+          const cardsHtml = await Promise.all(nextGames.map(renderUpcomingCard));
+          scheduledHtml = `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml.join("")}</div></div>`;
+        }
       }
-    }
-  } catch { /* a agenda oficial da Valve é instável — segue só com o que tiver */ }
+    } catch { /* a agenda oficial da Valve é instável — segue só com o que tiver */ }
+  }
 
   // complemento via STRATZ: nome do próximo torneio grande, mesmo sem agenda de partidas específica
   let nextTournamentHtml = "";
