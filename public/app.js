@@ -438,7 +438,7 @@ function renderLiveMatchDetail(g) {
       <div class="match-meta" style="justify-content:center;gap:16px"><span>${minutes} min (em andamento)</span></div>
     </div>
     <div class="team-block-title">Mapa (atualiza a cada ~6s — posições aproximadas)</div>
-    <div id="live-minimap"><div class="minimap-corner-r"></div><div class="minimap-corner-d"></div><div id="live-minimap-dots"></div></div>
+    <div id="live-minimap"><div id="live-minimap-dots"></div></div>
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
     <div class="picks-row">${picksBansBlock("radiant", true)}${picksBansBlock("radiant", false)}</div>
     <div class="team-block-title">Picks &amp; bans — ${dName}</div>

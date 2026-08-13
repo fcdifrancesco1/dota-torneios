@@ -203,14 +203,9 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
 .match-header .score{ font-size:32px; letter-spacing:-.01em; }
 #live-minimap{
   width:100%; max-width:320px; aspect-ratio:1; margin:0 auto 16px; border-radius:12px; overflow:hidden;
-  position:relative; border:1px solid var(--line); background:var(--card);
+  position:relative; border:1px solid var(--line);
+  background-image:url('./minimap.jpg'); background-size:cover; background-position:center;
 }
-#live-minimap::before{
-  content:""; position:absolute; inset:0; z-index:0;
-  background:linear-gradient(135deg, transparent 0%, transparent 46%, var(--gold) 46%, var(--gold) 54%, transparent 54%, transparent 100%);
-}
-.minimap-corner-r{ position:absolute; z-index:0; left:0; bottom:0; width:65%; height:65%; border-radius:0 100% 0 0; background:var(--radiant); opacity:.14; }
-.minimap-corner-d{ position:absolute; z-index:0; right:0; top:0; width:65%; height:65%; border-radius:100% 0 0 0; background:var(--dire); opacity:.14; }
 #live-minimap-dots{ position:absolute; inset:0; }
 .minimap-hero{
   position:absolute; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:5px;
