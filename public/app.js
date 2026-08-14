@@ -49,16 +49,7 @@ async function stratzQuery(query, variables) {
   return json.data;
 }
 
-// nomes amigáveis pras posições
-const POSITION_LABELS = {
-  POSITION_1: "Posição 1 (Carry)",
-  POSITION_2: "Posição 2 (Mid)",
-  POSITION_3: "Posição 3 (Offlane)",
-  POSITION_4: "Posição 4 (Suporte)",
-  POSITION_5: "Posição 5 (Suporte duro)",
-};
 const NUMERIC_POSITION_LABELS = { 1: "Posição 1", 2: "Posição 2", 3: "Posição 3", 4: "Posição 4", 5: "Posição 5" };
-const REGION_TO_STRATZ_DIVISION = { americas: "AMERICAS", europe: "EUROPE", china: "CHINA", se_asia: "SE_ASIA" };
 
 /* ---------- tema ---------- */
 (function initTheme() {
@@ -803,7 +794,6 @@ async function getMatchesForLeague(leagueId) {
   }
 }
 
-// Busca a partida com cache em disco permanente: só faz download 1 única vez
 async function getMatchCached(matchId) {
   if (!matchId) return null;
   const cacheKey = `dota:match:compact:${matchId}`;
@@ -845,14 +835,12 @@ async function getTeamRosterAndStats(teamName, leagueId) {
   try {
     const allMatches = await getMatchesForLeague(leagueId);
     
-    // Filtra TODAS as partidas que o time disputou na liga inteira (sem limite)
     const teamMatches = allMatches.filter(
       (m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName)
     );
 
     if (!teamMatches.length) return [];
 
-    // Baixa em lotes de 6 para evitar sobrecarregar a Netlify
     const fullMatches = [];
     for (let i = 0; i < teamMatches.length; i += 6) {
       const chunk = teamMatches.slice(i, i + 6);
@@ -913,7 +901,7 @@ async function getTeamRosterAndStats(teamName, leagueId) {
       if (midPlayer) midPlayer.position = 2;
     }
 
-    // 2. Separa os demais jogadores entre Cores e Suportes por GPM médio
+    // 2. Separa Cores e Suportes por GPM médio
     const remaining = teamList.filter((p) => p !== midPlayer);
     remaining.sort((a, b) => (b.gpm / (b.games || 1)) - (a.gpm / (a.games || 1)));
 
@@ -923,7 +911,6 @@ async function getTeamRosterAndStats(teamName, leagueId) {
       const sup1 = remaining[2];
       const sup2 = remaining[3];
 
-      // Posição 1 (Carry) vs Posição 3 (Offlane)
       if (core1.safeCount >= core2.safeCount) {
         core1.position = 1;
         core2.position = 3;
@@ -932,7 +919,6 @@ async function getTeamRosterAndStats(teamName, leagueId) {
         core2.position = 1;
       }
 
-      // Posição 4 (Soft Support) vs Posição 5 (Hard Support)
       sup1.position = 4;
       sup2.position = 5;
     } else {
@@ -951,7 +937,7 @@ async function getTeamRosterAndStats(teamName, leagueId) {
 async function openAgendaMatch(item) {
   $("#match-modal").classList.remove("hidden");
   stopLiveMinimap();
-  $("#match-detail").innerHTML = `<div class="empty-state">Carregando todas as partidas do torneio...</div>`;
+  $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação e estatísticas...</div>`;
 
   await ensureLeaguesLoaded().catch(() => {});
   const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
@@ -1265,13 +1251,13 @@ function renderMatchDetail(m) {
   `;
 }
 
-/* ---------- Ranking MMR ---------- */
+/* ---------- Ranking MMR Oficial (Valve via Netlify Function) ---------- */
 $$(".main-tab-btn").forEach((btn) => btn.addEventListener("click", () => switchMainView(btn.dataset.view)));
 function switchMainView(view) {
   $$(".main-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
   $("#layout").classList.toggle("hidden", view !== "torneios");
   $("#view-ranking").classList.toggle("hidden", view !== "ranking");
-  $("#view-heroes").classList.toggle("hidden", view !== "heroes");
+  
   if (view === "torneios" && !currentLeague) { startOverviewLivePolling(); startOverviewResultsPolling(); }
   else { stopOverviewLivePolling(); stopOverviewResultsPolling(); }
   if (view === "torneios" && currentLeague) {
@@ -1287,18 +1273,13 @@ function switchMainView(view) {
     window.__rankingLoadedOnce = true;
     loadRanking("europe");
   }
-  if (view === "heroes" && !window.__heroesLoadedOnce) {
-    window.__heroesLoadedOnce = true;
-    populateHeroesGrid();
-  }
 }
+
 $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click", () => {
   $$("#region-tabs .region-tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
   loadRanking(btn.dataset.region);
 }));
 
-/* ---------- Ranking MMR (STRATZ Leaderboard Aprimorado) ---------- */
-/* ---------- Ranking MMR Oficial (Valve via Netlify Function) ---------- */
 async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
@@ -1306,7 +1287,6 @@ async function loadRanking(division) {
   body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando Leaderboard Oficial da Valve...</td></tr>`;
 
   try {
-    // Chama a Netlify Function configurada
     const res = await fetch(`/.netlify/functions/leaderboard?division=${encodeURIComponent(division)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
@@ -1326,7 +1306,6 @@ async function loadRanking(division) {
 
     $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores na tabela oficial — Atualizado pela Valve em ${postTime}`;
 
-    // Exibe os 100 primeiros colocados
     const topPlayers = players.slice(0, 100);
 
     body.innerHTML = topPlayers.map((p) => {
@@ -1350,228 +1329,6 @@ async function loadRanking(division) {
     if (requestId !== window.__rankingRequestId) return;
     body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Erro ao carregar o ranking oficial.<br>${err.message || ""}</td></tr>`;
   }
-}
-
-/* ---------- Heróis: build por posição (STRATZ) ---------- */
-function populateHeroesGrid() {
-  const grid = $("#heroes-grid");
-  const ids = Object.keys(HEROES).sort((a, b) => heroName(a).localeCompare(heroName(b)));
-  grid.innerHTML = ids.map((id) =>
-    `<button class="hero-grid-icon" data-hero="${id}" title="${heroName(id)}"><img src="${heroImg(id)}" alt="${heroName(id)}"></button>`
-  ).join("");
-  grid.querySelectorAll(".hero-grid-icon").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      grid.querySelectorAll(".hero-grid-icon").forEach((b) => b.classList.toggle("active", b === btn));
-      loadHeroBuild(btn.dataset.hero);
-    });
-  });
-}
-$("#hero-search").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  $("#heroes-grid").querySelectorAll(".hero-grid-icon").forEach((btn) => {
-    const match = !q || heroName(btn.dataset.hero).toLowerCase().includes(q);
-    btn.style.display = match ? "" : "none";
-  });
-});
-
-/* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
-/* ---------- Normalizador de Posições (1 a 5) ---------- */
-function parsePositionNumber(pos) {
-  if (pos == null) return null;
-  const str = String(pos).toUpperCase().trim();
-  if (str.includes("1") || str.includes("CARRY") || str.includes("SAFE")) return 1;
-  if (str.includes("2") || str.includes("MID")) return 2;
-  if (str.includes("3") || str.includes("OFF")) return 3;
-  if (str.includes("4") || str.includes("SOFT") || str.includes("SUPPORT_4")) return 4;
-  if (str.includes("5") || str.includes("HARD") || str.includes("SUPPORT_5")) return 5;
-  return Number(str) || null;
-}
-
-/* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
-let heroBuildRequestId = 0;
-
-async function loadHeroBuild(heroId) {
-  const myId = ++heroBuildRequestId;
-  const panel = $("#hero-detail");
-  panel.innerHTML = `<div class="empty-state">Carregando dados recentes de ${heroName(heroId)}...</div>`;
-
-  try {
-    // Consulta GraphQL completa do herói no STRATZ
-    const data = await stratzQuery(
-      `query($heroId: Short!) {
-        heroStats {
-          stats(heroIds: [$heroId], groupByPosition: true) { 
-            position 
-            matchCount 
-            winCount 
-          }
-          itemStartingPurchase(heroId: $heroId) { 
-            itemId 
-            position 
-            matchCount 
-            winCount 
-          }
-          itemBootPurchase(heroId: $heroId) { 
-            itemId 
-            position 
-            matchCount 
-            winCount 
-          }
-          itemFullPurchase(heroId: $heroId) { 
-            itemId 
-            position 
-            time 
-            matchCount 
-            winCount 
-          }
-        }
-      }`,
-      { heroId: Number(heroId) }
-    );
-
-    if (myId !== heroBuildRequestId) return;
-
-    const hs = (data && data.heroStats) || {};
-    const rawStats = (hs.stats || []).filter(
-      (s) => s.position && s.position !== "UNKNOWN" && s.matchCount > 0
-    );
-
-    if (!rawStats.length) {
-      panel.innerHTML = `
-        <div class="hero-detail-header">
-          <img src="${heroImg(heroId)}" alt="">
-          <h2>${heroName(heroId)}</h2>
-        </div>
-        <div class="empty-state">Sem partidas recentes registradas para este herói no meta.</div>`;
-      return;
-    }
-
-    const totalGlobalGames = rawStats.reduce((acc, curr) => acc + curr.matchCount, 0);
-    const SAMPLE_SIZE = 100;
-
-    // Normaliza as roles na amostragem de 100 partidas
-    const normalizedStats = rawStats
-      .map((s) => {
-        const posNum = parsePositionNumber(s.position) || 1;
-        const share = s.matchCount / totalGlobalGames;
-        const sampleGames = Math.max(1, Math.round(share * SAMPLE_SIZE));
-        const winrate = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
-        return {
-          positionEnum: s.position,
-          positionNum: posNum,
-          matchCount: sampleGames,
-          winRatePct: winrate,
-          rawCount: s.matchCount,
-        };
-      })
-      .sort((a, b) => b.matchCount - a.matchCount);
-
-    // Inicia pela role com maior número de partidas
-    renderHeroDetail(heroId, normalizedStats, hs, normalizedStats[0].positionNum);
-  } catch (err) {
-    if (myId !== heroBuildRequestId) return;
-    panel.innerHTML = `
-      <div class="hero-detail-header">
-        <img src="${heroImg(heroId)}" alt="">
-        <h2>${heroName(heroId)}</h2>
-      </div>
-      <div class="empty-state" style="white-space:normal">Erro ao carregar dados do herói.<br>${err.message || ""}</div>`;
-  }
-}
-
-function renderHeroDetail(heroId, stats, hs, selectedPosNum) {
-  const panel = $("#hero-detail");
-
-  // Abas de posições (Roles)
-  const tabsHtml = stats.map((s) => {
-    const label = NUMERIC_POSITION_LABELS[s.positionNum] || `Posição ${s.positionNum}`;
-    const isActive = s.positionNum === selectedPosNum ? "active" : "";
-    return `
-      <button class="position-tab-btn ${isActive}" data-pos="${s.positionNum}">
-        ${label}
-        <span class="ptb-sub">${s.winRatePct}% vitórias · ${s.matchCount} jogos</span>
-      </button>`;
-  }).join("");
-
-  // Filtra itens com matching normalizado por posição numérica (1 a 5)
-  const getItemListForPosition = (items, targetPosNum) => {
-    if (!items || !items.length) return [];
-
-    // 1. Procura itens correspondentes à posição selecionada (1, 2, 3, 4 ou 5)
-    let filtered = items.filter((i) => parsePositionNumber(i.position) === targetPosNum);
-
-    // 2. Se a role não tiver itens suficientes, usa a lista geral do herói
-    if (!filtered.length) {
-      filtered = items;
-    }
-
-    const byItem = {};
-    filtered.forEach((i) => {
-      const acc = byItem[i.itemId] || (byItem[i.itemId] = { itemId: i.itemId, matchCount: 0, winCount: 0, timeSum: 0, timeN: 0 });
-      acc.matchCount += i.matchCount || 0;
-      acc.winCount += i.winCount || 0;
-      if (i.time != null) { 
-        acc.timeSum += i.time; 
-        acc.timeN++; 
-      }
-    });
-
-    return Object.values(byItem).map((i) => ({
-      ...i,
-      time: i.timeN ? i.timeSum / i.timeN : null,
-      winRate: i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0,
-    }));
-  };
-
-  const itemSection = (title, items, opts) => {
-    let list = getItemListForPosition(items, selectedPosNum);
-    if (!list.length) return "";
-
-    list.sort((a, b) => b.matchCount - a.matchCount);
-    let top = list.slice(0, opts.take);
-
-    if (opts.sortByTime) {
-      top = top.sort((a, b) => (a.time || 0) - (b.time || 0));
-    }
-
-    const chips = top.map((i) => `
-      <div class="item-chip" title="${ITEMS_BY_ID[i.itemId]?.dname || 'Item'} — ${i.winRate}% vitórias">
-        <img src="${itemImg(i.itemId)}" alt="">
-        <span class="item-badge">${i.winRate}%</span>
-      </div>
-    `).join("");
-
-    return `
-      <div class="item-build-section">
-        <div class="team-block-title">${title}</div>
-        <div class="item-build-row">${chips}</div>
-      </div>`;
-  };
-
-  panel.innerHTML = `
-    <div class="hero-detail-header">
-      <img src="${heroImg(heroId)}" alt="">
-      <div>
-        <h2>${heroName(heroId)}</h2>
-        <div class="section-sub" style="margin-top:2px">Baseado nas últimas 100 partidas do meta</div>
-      </div>
-    </div>
-    
-    <div id="hero-position-tabs">${tabsHtml}</div>
-    
-    <div id="hero-build-content">
-      ${itemSection("Itens Iniciais", hs.itemStartingPurchase, { take: 6, sortByTime: false })}
-      ${itemSection("Botas", hs.itemBootPurchase, { take: 3, sortByTime: false })}
-      ${itemSection("Build Principal (Ordem de Compra)", hs.itemFullPurchase, { take: 8, sortByTime: true })}
-    </div>
-  `;
-
-  // Evento de clique para alternar as roles (Pos 1 a 5)
-  panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      renderHeroDetail(heroId, stats, hs, Number(btn.dataset.pos));
-    });
-  });
 }
 
 /* ---------- boot ---------- */

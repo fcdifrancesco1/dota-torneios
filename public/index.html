@@ -26,7 +26,6 @@
   <nav id="main-tabs">
     <button class="main-tab-btn active" data-view="torneios">Torneios</button>
     <button class="main-tab-btn" data-view="ranking">Ranking MMR</button>
-    <button class="main-tab-btn" data-view="heroes">Heróis</button>
   </nav>
 
   <div id="layout">
@@ -87,8 +86,7 @@
 
   </div>
 
-  <!-- TELA: RANKING MMR -->
-  <!-- TELA: RANKING MMR OFICIAL -->
+  <!-- TELA: RANKING MMR OFICIAL (VALVE) -->
   <section id="view-ranking" class="hidden">
     <nav id="region-tabs">
       <button class="region-tab-btn" data-region="americas">Américas</button>
@@ -110,22 +108,6 @@
     </table>
   </section>
 
-  <!-- TELA: HERÓIS (build por posição via STRATZ) -->
-  <section id="view-heroes" class="hidden">
-    <div id="heroes-layout">
-      <aside id="heroes-list-wrap">
-        <div class="search-box">
-          <label for="hero-search">Buscar herói</label>
-          <input id="hero-search" type="text" placeholder="ex: Anti-Mage..." autocomplete="off" />
-        </div>
-        <div id="heroes-grid"></div>
-      </aside>
-      <main id="hero-detail">
-        <div class="empty-state">Selecione um herói pra ver a posição mais jogada e a build de itens.</div>
-      </main>
-    </div>
-  </section>
-
   <!-- MODAL: detalhe da série -->
   <div id="series-modal" class="hidden">
     <div id="series-modal-backdrop"></div>
@@ -136,7 +118,7 @@
     </div>
   </div>
 
-  <!-- MODAL: detalhe da partida -->
+  <!-- MODAL: detalhe da partida / escalação -->
   <div id="match-modal" class="hidden">
     <div id="match-modal-backdrop"></div>
     <div id="match-modal-sheet">
