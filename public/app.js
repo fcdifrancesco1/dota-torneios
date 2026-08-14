@@ -55,8 +55,8 @@ const POSITION_LABELS = {
   POSITION_4: "Posição 4 (Suporte)",
   POSITION_5: "Posição 5 (Suporte duro)",
 };
+const NUMERIC_POSITION_LABELS = { 1: "Posição 1", 2: "Posição 2", 3: "Posição 3", 4: "Posição 4", 5: "Posição 5" };
 const REGION_TO_STRATZ_DIVISION = { americas: "AMERICAS", europe: "EUROPE", china: "CHINA", se_asia: "SE_ASIA" };
-
 
 /* ---------- tema ---------- */
 (function initTheme() {
@@ -126,7 +126,6 @@ async function ensureTeamLogos(teamIds) {
   }
   return cache;
 }
-// índice nome→logo (só usado pela agenda manual, onde a gente só tem o nome digitado, não o id)
 function normalizeTeamName(name) { return String(name || "").trim().toLowerCase(); }
 async function ensureTeamsByNameIndex() {
   const cached = lsGet("dota:teamsByName", null);
@@ -186,9 +185,9 @@ async function enrichPlayerNames(players) {
 }
 
 /* ---------- estado ---------- */
-let currentLeague = null; // { leagueid, name } ou null = visão geral
+let currentLeague = null;
 let liveTimer = null;
-let cachedMatches = null; // resultados do torneio selecionado
+let cachedMatches = null;
 
 /* ---------- lista de torneios (busca) ---------- */
 let allLeagues = null;
@@ -211,9 +210,6 @@ function isTopTierLeague(id) {
   return tier === "premium" || tier === "professional";
 }
 
-/* ---------- "Recentes": últimos torneios premium/profissionais realmente disputados ---------- */
-// PROFESSIONAL da STRATZ é bem mais amplo/genérico que o "professional" da OpenDota — inclui
-// torneios regionais pequenos com dados de time incompletos, então deixamos de fora aqui.
 const STRATZ_TOP_TIERS = ["MINOR", "MAJOR", "INTERNATIONAL", "DPC_LEAGUE", "DPC_LEAGUE_FINALS"];
 
 async function computeRecentlyPlayedLeagues() {
@@ -233,7 +229,7 @@ async function computeRecentlyPlayedLeagues() {
     lsSet("dota:recentlyPlayed:v4", { ts: Date.now(), data: out });
     return out;
   } catch {
-    return computeRecentlyPlayedLeaguesFallback(); // STRATZ fora do ar/sem token — volta pro jeito antigo
+    return computeRecentlyPlayedLeaguesFallback();
   }
 }
 async function computeRecentlyPlayedLeaguesFallback() {
@@ -333,8 +329,6 @@ $$(".tab-btn").forEach((btn) => btn.addEventListener("click", () => switchTab(bt
 function startLivePolling() { stopLivePolling(); liveTimer = setInterval(loadLive, 30000); }
 function stopLivePolling() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
 
-// resultados de um torneio selecionado mudam devagar (depende da OpenDota/STRATZ processarem a
-// partida depois que ela termina) — atualiza de tempos em tempos em vez de exigir F5 manual.
 let resultsPollTimer = null;
 function startResultsPolling() {
   stopResultsPolling();
@@ -383,14 +377,13 @@ function renderLiveCard(g, idx) {
     </div>`;
 }
 
-/* ---------- detalhe de partida ao vivo (formato diferente do resultado finalizado) ---------- */
+/* ---------- detalhe de partida ao vivo ---------- */
 function getSidePlayers(sb, side) {
   const s = sb && sb[side];
   if (!s) return [];
   return s.players || s.player || [];
 }
 let liveMinimapTimer = null;
-// links de transmissão por torneio (public/streams.json, editado manualmente por você)
 let streamsDataCache = null;
 async function ensureStreamsData() {
   if (streamsDataCache) return streamsDataCache;
@@ -436,26 +429,23 @@ function startLiveMinimap(g, streamsData) {
       const match = games.find((x) =>
         (x.radiant_team && x.radiant_team.team_name) === rName && (x.dire_team && x.dire_team.team_name) === dName
       );
-      if (!match) { stopLiveMinimap(); return; } // partida acabou ou saiu do ar
+      if (!match) { stopLiveMinimap(); return; }
       const sb = match.scoreboard || {};
       await enrichPlayerNames([...getSidePlayers(sb, "radiant"), ...getSidePlayers(sb, "dire")]).catch(() => {});
-      // re-renderiza tudo (placar, KDA, itens) e não só o mapa — senão só a posição no mapa atualizava
       const leagueName = leagueNameById(match.league_id || leagueId);
       $("#match-detail").innerHTML = renderLiveMatchDetail(match, getStreamLinksForLeague(streamsData, leagueName));
       renderMinimapDots(sb);
-    } catch { /* mantém o último estado se uma atualização falhar */ }
+    } catch { /* mantém o último estado */ }
   };
   renderMinimapDots(g.scoreboard);
   liveMinimapTimer = setInterval(refresh, 6000);
 }
-// aproximação dos limites do mapa do Dota 2 em coordenadas de mundo (mapa ~quadrado, centrado em 0,0)
 const MAP_MIN = -8288, MAP_MAX = 8288;
 function worldToPct(x, y) {
   const fx = (x - MAP_MIN) / (MAP_MAX - MAP_MIN);
-  const fy = 1 - (y - MAP_MIN) / (MAP_MAX - MAP_MIN); // eixo Y do jogo cresce pra "cima" (norte)
+  const fy = 1 - (y - MAP_MIN) / (MAP_MAX - MAP_MIN);
   return { left: `${Math.min(100, Math.max(0, fx * 100)).toFixed(1)}%`, top: `${Math.min(100, Math.max(0, fy * 100)).toFixed(1)}%` };
 }
-// posição aproximada de cada fontanha na imagem do mapa (Radiant = canto inferior esquerdo, Dire = canto superior direito)
 const RADIANT_BASE = { left: 10, top: 88 };
 const DIRE_BASE = { left: 88, top: 10 };
 function renderMinimapDots(sb) {
@@ -467,7 +457,6 @@ function renderMinimapDots(sb) {
     const dead = (p.respawn_timer || 0) > 0;
     let left, top;
     if (dead) {
-      // morto: mostra na base do time, em cinza, com um leve espalhamento pra não empilhar 100% igual
       left = `${base.left + (jitterIdx % 3) * 3 - 3}%`;
       top = `${base.top + Math.floor(jitterIdx / 3) * 3 - 3}%`;
     } else {
@@ -542,9 +531,9 @@ function renderLiveMatchDetail(g, streamLinks) {
 
 /* ---------- agrupamento de partidas em séries (bo1/bo3/bo5) ---------- */
 function seriesWinsNeeded(seriesType) {
-  if (seriesType === 2) return 3; // bo5
-  if (seriesType === 1) return 2; // bo3
-  return 1; // bo1 / desconhecido
+  if (seriesType === 2) return 3;
+  if (seriesType === 1) return 2;
+  return 1;
 }
 function groupIntoSeries(matches) {
   const groups = {};
@@ -589,7 +578,7 @@ async function loadResults() {
     try {
       series = attachOpenDotaGames(await fetchStratzSeriesForLeague(currentLeague.leagueid), cachedMatches);
     } catch {
-      series = groupIntoSeries(cachedMatches); // fallback: nosso agrupamento por conectividade
+      series = groupIntoSeries(cachedMatches);
     }
     series.sort((a, b) => b.startTime - a.startTime);
     box.innerHTML = await renderSeriesGrouped(series);
@@ -622,7 +611,7 @@ function attachSeriesClicks(container, seriesList) {
   });
 }
 
-/* ---------- séries de um torneio via STRATZ (com fallback pro agrupamento antigo) ---------- */
+/* ---------- séries de um torneio via STRATZ ---------- */
 async function fetchStratzSeriesForLeague(leagueId) {
   const data = await stratzQuery(
     `query($id: Int!) {
@@ -654,7 +643,7 @@ async function fetchStratzSeriesForLeague(leagueId) {
       decided: s.winningTeamId != null,
       startTime: s.lastMatchDateTime || 0,
       gameIds: (s.matches || []).map((m) => String(m.id)),
-      games: [], // preenchido sob demanda com attachOpenDotaGames()
+      games: [],
     };
   });
   lsSet("dota:teamLogos", logos);
@@ -669,7 +658,7 @@ function attachOpenDotaGames(series, openDotaMatches) {
   return series;
 }
 
-/* ---------- classificação (coluna direita): com grupos inferidos + cores ---------- */
+/* ---------- classificação (coluna direita) ---------- */
 function computeStandingsFromSeries(series) {
   const table = {};
   const ensure = (id, name) => (table[id] = table[id] || { id: String(id), name, seriesW: 0, seriesL: 0, mapsW: 0, mapsL: 0 });
@@ -687,23 +676,6 @@ function computeStandingsFromSeries(series) {
   );
 }
 
-// times que nunca se enfrentaram não podem estar no mesmo grupo/chave —
-// usamos isso pra separar grupos automaticamente enquanto eles não se cruzam nos playoffs
-// (fallback pra quando o STRATZ não tem a chave/grupo oficial cadastrada — nem sempre tem).
-function computeGroupClustersFromSeries(series) {
-  const parent = {};
-  const find = (x) => { if (parent[x] === undefined) parent[x] = x; return parent[x] === x ? x : (parent[x] = find(parent[x])); };
-  const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
-  series.forEach((s) => {
-    if (s.teamAId == null || s.teamBId == null) return;
-    const a = String(s.teamAId), b = String(s.teamBId);
-    find(a); find(b); union(a, b);
-  });
-  const clusters = {};
-  Object.keys(parent).forEach((id) => { const root = find(id); (clusters[root] = clusters[root] || []).push(id); });
-  return Object.values(clusters);
-}
-
 function renderStandingsTable(series) {
   const body = $("#standings-body");
   const allRows = computeStandingsFromSeries(series);
@@ -716,10 +688,6 @@ function renderStandingsTable(series) {
   };
 
   if (!allRows.length) { body.innerHTML = `<tr><td colspan="4" class="empty-state">Sem dados suficientes.</td></tr>`; return; }
-
-  // Removemos a separação automática em "Grupo A/B/C..." — ela usava conectividade (quem já se
-  // enfrentou) pra adivinhar grupos, mas isso dá falso positivo em formatos de liga/Swiss (como a
-  // TI), onde nem todo mundo jogou contra todo mundo ainda mas não existe divisão de grupo real.
   body.innerHTML = renderGroup(allRows, null);
 }
 
@@ -732,24 +700,21 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
   try {
     let series;
     try {
-      series = await fetchStratzSeriesForLeague(leagueId); // fonte principal: STRATZ já entrega a série pronta
+      series = await fetchStratzSeriesForLeague(leagueId);
     } catch {
       let matches = (cachedMatches && !isDefault) ? cachedMatches : await odFetch(`leagues/${leagueId}/matches`);
       matches = await enrichTeamNames(matches);
-      series = groupIntoSeries(matches); // fallback: nosso agrupamento por conectividade
+      series = groupIntoSeries(matches);
     }
     renderStandingsTable(series);
   } catch { body.innerHTML = `<tr><td colspan="4" class="empty-state">Erro ao calcular classificação.</td></tr>`; }
 }
 
-
-/* ---------- visão geral (sem torneio selecionado) ---------- */
+/* ---------- visão geral ---------- */
 let overviewLiveTimer = null;
 function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTimer = setInterval(refreshOverviewLive, 20000); }
 function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overviewLiveTimer); overviewLiveTimer = null; }
 
-// "Últimos resultados" e a classificação padrão mudam mais devagar (série em andamento, jogos
-// processados pela OpenDota/STRATZ) — atualiza de tempos em tempos em vez de só no carregamento.
 let overviewResultsTimer = null;
 function startOverviewResultsPolling() {
   stopOverviewResultsPolling();
@@ -766,21 +731,20 @@ async function refreshOverviewLive() {
     await ensureLeaguesLoaded().catch(() => {});
     const liveGames = allLive.filter((g) => isTopTierLeague(g.league_id));
     let block = $("#upcoming-live-block");
-    if (!liveGames.length) { if (block) block.remove(); return; } // sem jogo ao vivo agora, mas o polling continua checando
+    if (!liveGames.length) { if (block) block.remove(); return; }
 
     await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
     const cardsHtml = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
     if (block) {
       block.querySelector(".match-grid").innerHTML = cardsHtml;
     } else {
-      // nenhum jogo estava ao vivo antes — insere o bloco novo no topo
       const wrapper = document.createElement("div");
       wrapper.innerHTML = `<div class="date-group" id="upcoming-live-block"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${cardsHtml}</div></div>`;
       upcomingBox.prepend(wrapper.firstElementChild);
       block = $("#upcoming-live-block");
     }
     block.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
-  } catch { /* mantém o último estado se uma atualização falhar */ }
+  } catch { /* mantém último estado */ }
 }
 
 async function loadCenterDefault() {
@@ -788,16 +752,14 @@ async function loadCenterDefault() {
   await Promise.all([loadUpcoming(), loadRecentResults()]);
 }
 
-// escolhe o torneio "em destaque": prioriza um torneio grande com partida ao vivo agora;
-// se nenhum tiver, cai pro último torneio encerrado (mesmo critério de antes).
 async function determineFeaturedLeague() {
   let liveGames = [];
   try {
-    const liveData = await liveFetch(); // sem league_id = todas as partidas de liga ao vivo agora
+    const liveData = await liveFetch();
     const allLive = (liveData && liveData.result && liveData.result.games) || [];
     await ensureLeaguesLoaded().catch(() => {});
-    liveGames = allLive.filter((g) => isTopTierLeague(g.league_id)); // só torneios premium/profissionais
-  } catch { /* segue sem partidas ao vivo se essa chamada falhar */ }
+    liveGames = allLive.filter((g) => isTopTierLeague(g.league_id));
+  } catch { /* ignora se falhar */ }
 
   if (liveGames.length) {
     const counts = {};
@@ -811,9 +773,6 @@ async function determineFeaturedLeague() {
   return null;
 }
 
-// agenda editada manualmente por você (public/agenda.json) — usada como fonte principal de
-// "próximas partidas" já que nenhuma API pública tem essa informação de forma confiável hoje.
-// escalação prevista (public/players.json, editado manualmente por você)
 let playersDataCache = null;
 async function ensurePlayersData() {
   if (playersDataCache) return playersDataCache;
@@ -833,32 +792,13 @@ function rosterForTeam(playersData, teamName) {
     .filter((p) => teamNameMatches(p.team, teamName))
     .sort((a, b) => (a.position || 99) - (b.position || 99));
 }
-const NUMERIC_POSITION_LABELS = { 1: "Posição 1", 2: "Posição 2", 3: "Posição 3", 4: "Posição 4", 5: "Posição 5" };
 function leagueIdByName(name) {
   const l = (allLeagues || []).find((x) => x.name === name);
   return l ? l.leagueid : null;
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-// Cache para guardar os dados agregados da liga e evitar re-consultas na mesma sessão
-let leaguePlayersCache = {};
-
-async function getLeaguePlayersStats(leagueId) {
-  if (!leagueId) return [];
-  if (leaguePlayersCache[leagueId]) return leaguePlayersCache[leagueId];
-
-  try {
-    // Endpoint oficial agregado da OpenDota para jogadores da liga
-    const players = await odFetch(`leagues/${leagueId}/players`);
-    leaguePlayersCache[leagueId] = players || [];
-    return leaguePlayersCache[leagueId];
-  } catch (e) {
-    console.error("Erro ao buscar jogadores da liga:", e);
-    return [];
-  }
-}
-
-// Cache para as médias do torneio via STRATZ
+/* ---------- Estatísticas de jogadores por Torneio (STRATZ GraphQL) ---------- */
 let leagueStatsCache = {};
 
 async function fetchLeaguePlayerStats(leagueId) {
@@ -898,7 +838,7 @@ async function fetchLeaguePlayerStats(leagueId) {
     return [];
   }
 }
-// Cache para as médias do torneio via STRATZ
+
 async function computeRosterStats(roster, teamName, leagueId) {
   if (!leagueId || !roster.length) return;
 
@@ -907,12 +847,12 @@ async function computeRosterStats(roster, teamName, leagueId) {
     if (!allPlayers.length) return;
 
     roster.forEach((p) => {
-      // 1. Match por Steam Account ID
+      // 1. Busca por Steam Account ID (precisão total)
       let target = allPlayers.find(
         (sp) => p.account_id && Number(sp.steamAccountId) === Number(p.account_id)
       );
 
-      // 2. Match por Pro Name ou Nickname
+      // 2. Busca flexível por Pro Name ou Nickname na Steam
       if (!target) {
         const pNick = normalizeNick(p.nickname);
         target = allPlayers.find((sp) => {
@@ -1035,7 +975,7 @@ async function loadManualAgenda() {
       });
     }, 0);
     return `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml}</div></div>`;
-  } catch { return ""; } // agenda.json ausente, vazio ou com erro de formato — segue pras outras fontes
+  } catch { return ""; }
 }
 
 async function loadUpcoming() {
@@ -1075,10 +1015,9 @@ async function loadUpcoming() {
           scheduledHtml = `<div class="date-group"><div class="date-group-header">Agendadas</div><div class="match-grid">${cardsHtml.join("")}</div></div>`;
         }
       }
-    } catch { /* a agenda oficial da Valve é instável — segue só com o que tiver */ }
+    } catch { /* agenda oficial instável */ }
   }
 
-  // complemento via STRATZ: nome do próximo torneio grande, mesmo sem agenda de partidas específica
   let nextTournamentHtml = "";
   if (!scheduledHtml) {
     try {
@@ -1097,7 +1036,7 @@ async function loadUpcoming() {
           <div class="match-card" style="cursor:default"><div class="match-teams"><span class="team-name">${next.displayName}</span></div>
           <div class="match-meta"><span>Início previsto: ${when}</span></div></div></div>`;
       }
-    } catch { /* STRATZ fora do ar — segue sem esse complemento */ }
+    } catch { /* ignora se falhar */ }
   }
 
   if (!liveHtml && !scheduledHtml && !nextTournamentHtml) {
@@ -1145,7 +1084,7 @@ async function loadRecentResults() {
     try {
       series = attachOpenDotaGames(await fetchStratzSeriesForLeague(featured.leagueid), matches);
     } catch {
-      series = groupIntoSeries(matches); // fallback: nosso agrupamento por conectividade
+      series = groupIntoSeries(matches);
     }
     series = series.sort((a, b) => b.startTime - a.startTime).slice(0, 8);
     if (!series.length) { box.innerHTML = `<div class="empty-state">Esse torneio ainda não tem resultados.</div>`; }
@@ -1154,7 +1093,6 @@ async function loadRecentResults() {
       attachSeriesClicks(box, series);
     }
 
-    // guarda pra classificação padrão usar o mesmo torneio
     window.__lastFinishedLeagueId = featured.leagueid;
     window.__lastFinishedLeagueName = featured.name;
     window.__lastFinishedIsLive = featured.isLive;
@@ -1261,7 +1199,7 @@ function renderMatchDetail(m) {
   `;
 }
 
-/* ---------- Ranking MMR (aba do topo) ---------- */
+/* ---------- Ranking MMR ---------- */
 $$(".main-tab-btn").forEach((btn) => btn.addEventListener("click", () => switchMainView(btn.dataset.view)));
 function switchMainView(view) {
   $$(".main-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -1326,7 +1264,6 @@ async function loadRanking(division) {
     body.innerHTML = players.map((p, i) => {
       const acc = p.steamAccount || {};
       const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="">` : `<span class="player-avatar player-avatar-empty"></span>`;
-      // a STRATZ já manda winRate em porcentagem (ex: 59 = 59%), não em fração — sem multiplicar por 100 de novo
       const winPct = p.matchCount ? Math.round(p.winRate || 0) : "-";
       const heroes = [p.topHeroOne, p.topHeroTwo, p.topHeroThree].filter(Boolean)
         .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}">`).join("");
@@ -1345,7 +1282,7 @@ async function loadRanking(division) {
   }
 }
 
-/* ---------- Heróis: posição mais jogada + build de item (STRATZ) ---------- */
+/* ---------- Heróis: build por posição (STRATZ) ---------- */
 function populateHeroesGrid() {
   const grid = $("#heroes-grid");
   const ids = Object.keys(HEROES).sort((a, b) => heroName(a).localeCompare(heroName(b)));
@@ -1412,8 +1349,6 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
 
   const itemSection = (title, items, opts) => {
     const filtered = items.filter((i) => i.position === selectedPosition);
-    // a STRATZ devolve várias linhas por item (uma pra cada janela de tempo em que foi comprado) —
-    // agrupamos por item antes de escolher os mais populares, senão o mesmo item aparece repetido.
     const byItem = {};
     filtered.forEach((i) => {
       const acc = byItem[i.itemId] || (byItem[i.itemId] = { itemId: i.itemId, matchCount: 0, winCount: 0, timeSum: 0, timeN: 0 });
