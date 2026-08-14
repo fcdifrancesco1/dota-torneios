@@ -1374,81 +1374,182 @@ $("#hero-search").addEventListener("input", (e) => {
   });
 });
 
+/* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
 let heroBuildRequestId = 0;
+
 async function loadHeroBuild(heroId) {
   const myId = ++heroBuildRequestId;
   const panel = $("#hero-detail");
-  panel.innerHTML = `<div class="empty-state">Carregando ${heroName(heroId)}...</div>`;
+  panel.innerHTML = `<div class="empty-state">Carregando dados recentes de ${heroName(heroId)}...</div>`;
+
   try {
+    // Busca os dados consolidados do herói no STRATZ
     const data = await stratzQuery(
       `query($heroId: Short!) {
         heroStats {
-          stats(heroIds: [$heroId], groupByPosition: true) { position matchCount winCount }
-          itemStartingPurchase(heroId: $heroId) { itemId position matchCount winCount }
-          itemBootPurchase(heroId: $heroId) { itemId position matchCount winCount }
-          itemFullPurchase(heroId: $heroId) { itemId position time matchCount winCount }
+          stats(heroIds: [$heroId], groupByPosition: true) { 
+            position 
+            matchCount 
+            winCount 
+          }
+          itemStartingPurchase(heroId: $heroId) { 
+            itemId 
+            position 
+            matchCount 
+            winCount 
+          }
+          itemBootPurchase(heroId: $heroId) { 
+            itemId 
+            position 
+            matchCount 
+            winCount 
+          }
+          itemFullPurchase(heroId: $heroId) { 
+            itemId 
+            position 
+            time 
+            matchCount 
+            winCount 
+          }
         }
       }`,
       { heroId: Number(heroId) }
     );
+
     if (myId !== heroBuildRequestId) return;
+
     const hs = (data && data.heroStats) || {};
-    const stats = (hs.stats || []).filter((s) => s.position && s.position !== "UNKNOWN" && s.matchCount > 0)
-      .sort((a, b) => b.matchCount - a.matchCount);
-    if (!stats.length) {
-      panel.innerHTML = `<div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
-        <div class="empty-state">Sem dados de posição suficientes pra esse herói ainda.</div>`;
+    const rawStats = (hs.stats || []).filter(
+      (s) => s.position && s.position !== "UNKNOWN" && s.matchCount > 0
+    );
+
+    if (!rawStats.length) {
+      panel.innerHTML = `
+        <div class="hero-detail-header">
+          <img src="${heroImg(heroId)}" alt="">
+          <h2>${heroName(heroId)}</h2>
+        </div>
+        <div class="empty-state">Sem partidas recentes registradas para este herói no meta.</div>`;
       return;
     }
-    renderHeroDetail(heroId, stats, hs, stats[0].position);
+
+    // Calcula o total geral de jogos somados para normalizar a amostragem em 100 partidas
+    const totalGlobalGames = rawStats.reduce((acc, curr) => acc + curr.matchCount, 0);
+
+    // Amostragem proporcional nas últimas 100 partidas
+    const SAMPLE_SIZE = 100;
+    const normalizedStats = rawStats
+      .map((s) => {
+        const share = s.matchCount / totalGlobalGames;
+        const sampleGames = Math.max(1, Math.round(share * SAMPLE_SIZE));
+        const winrate = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
+        return {
+          position: s.position,
+          matchCount: sampleGames,
+          winRatePct: winrate,
+          rawCount: s.matchCount,
+        };
+      })
+      .sort((a, b) => b.matchCount - a.matchCount);
+
+    // Renderiza o detalhe selecionando a posição mais jogada por padrão
+    renderHeroDetail(heroId, normalizedStats, hs, normalizedStats[0].position);
   } catch (err) {
     if (myId !== heroBuildRequestId) return;
-    panel.innerHTML = `<div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
-      <div class="empty-state" style="white-space:normal">Erro ao carregar dados do STRATZ.<br>${err.message || ""}</div>`;
+    panel.innerHTML = `
+      <div class="hero-detail-header">
+        <img src="${heroImg(heroId)}" alt="">
+        <h2>${heroName(heroId)}</h2>
+      </div>
+      <div class="empty-state" style="white-space:normal">Erro ao carregar dados do herói.<br>${err.message || ""}</div>`;
   }
 }
+
 function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   const panel = $("#hero-detail");
+
+  // Botões de Posição (Role) com Winrate e total de jogos na amostragem
   const tabsHtml = stats.map((s) => {
-    const pct = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
     const label = (POSITION_LABELS[s.position] || s.position).replace(/ \(.+\)/, "");
-    return `<button class="position-tab-btn ${s.position === selectedPosition ? "active" : ""}" data-pos="${s.position}">
-      ${label}<span class="ptb-sub">${pct}% vitórias · ${s.matchCount.toLocaleString("pt-BR")} jogos</span>
-    </button>`;
+    const isActive = s.position === selectedPosition ? "active" : "";
+    return `
+      <button class="position-tab-btn ${isActive}" data-pos="${s.position}">
+        ${label}
+        <span class="ptb-sub">${s.winRatePct}% vitórias · ${s.matchCount} jogos</span>
+      </button>`;
   }).join("");
 
+  // Construtor de blocos de itens filtrados pela posição selecionada
   const itemSection = (title, items, opts) => {
-    const filtered = items.filter((i) => i.position === selectedPosition);
+    const filtered = (items || []).filter((i) => i.position === selectedPosition);
+    if (!filtered.length) return "";
+
+    // Agrupa compras repetidas do mesmo item
     const byItem = {};
     filtered.forEach((i) => {
       const acc = byItem[i.itemId] || (byItem[i.itemId] = { itemId: i.itemId, matchCount: 0, winCount: 0, timeSum: 0, timeN: 0 });
       acc.matchCount += i.matchCount || 0;
       acc.winCount += i.winCount || 0;
-      if (i.time != null) { acc.timeSum += i.time; acc.timeN++; }
+      if (i.time != null) { 
+        acc.timeSum += i.time; 
+        acc.timeN++; 
+      }
     });
-    let list = Object.values(byItem).map((i) => ({ ...i, time: i.timeN ? i.timeSum / i.timeN : null }));
+
+    let list = Object.values(byItem).map((i) => ({
+      ...i,
+      time: i.timeN ? i.timeSum / i.timeN : null,
+      winRate: i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0,
+    }));
+
+    // Ordena por popularidade
     list.sort((a, b) => b.matchCount - a.matchCount);
     let top = list.slice(0, opts.take);
-    if (opts.sortByTime) top = top.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    // Se for a build principal, ordena pelo tempo médio de compra na partida
+    if (opts.sortByTime) {
+      top = top.sort((a, b) => (a.time || 0) - (b.time || 0));
+    }
+
     if (!top.length) return "";
-    const chips = top.map((i) => {
-      const pct = i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0;
-      return `<div class="item-chip"><img src="${itemImg(i.itemId)}" alt=""><span class="item-badge">${pct}%</span></div>`;
-    }).join("");
-    return `<div class="item-build-section"><div class="team-block-title">${title}</div><div class="item-build-row">${chips}</div></div>`;
+
+    const chips = top.map((i) => `
+      <div class="item-chip" title="${ITEMS_BY_ID[i.itemId]?.dname || 'Item'} — ${i.winRate}% vitórias">
+        <img src="${itemImg(i.itemId)}" alt="">
+        <span class="item-badge">${i.winRate}%</span>
+      </div>
+    `).join("");
+
+    return `
+      <div class="item-build-section">
+        <div class="team-block-title">${title}</div>
+        <div class="item-build-row">${chips}</div>
+      </div>`;
   };
 
   panel.innerHTML = `
-    <div class="hero-detail-header"><img src="${heroImg(heroId)}" alt=""><h2>${heroName(heroId)}</h2></div>
+    <div class="hero-detail-header">
+      <img src="${heroImg(heroId)}" alt="">
+      <div>
+        <h2>${heroName(heroId)}</h2>
+        <div class="section-sub" style="margin-top:2px">Baseado nas últimas 100 partidas do meta</div>
+      </div>
+    </div>
+    
     <div id="hero-position-tabs">${tabsHtml}</div>
+    
     <div id="hero-build-content">
-      ${itemSection("Itens iniciais", hs.itemStartingPurchase || [], { take: 6, sortByTime: false })}
-      ${itemSection("Botas", hs.itemBootPurchase || [], { take: 3, sortByTime: false })}
-      ${itemSection("Build principal (ordem de compra)", hs.itemFullPurchase || [], { take: 8, sortByTime: true })}
+      ${itemSection("Itens Iniciais", hs.itemStartingPurchase, { take: 6, sortByTime: false })}
+      ${itemSection("Botas", hs.itemBootPurchase, { take: 3, sortByTime: false })}
+      ${itemSection("Build Principal (Ordem de Compra)", hs.itemFullPurchase, { take: 8, sortByTime: true })}
     </div>
   `;
+
+  // Evento de clique para alternar entre as posições do herói
   panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => renderHeroDetail(heroId, stats, hs, btn.dataset.pos));
+    btn.addEventListener("click", () => {
+      renderHeroDetail(heroId, stats, hs, btn.dataset.pos);
+    });
   });
 }
 
