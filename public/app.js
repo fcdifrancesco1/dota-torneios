@@ -830,13 +830,15 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
           playersMap[id] = {
             account_id: pl.account_id,
             nickname: pl.name || pl.personaname || `Jogador ${idx + 1}`,
-            position: idx + 1,
             games: 0,
             kills: 0,
             deaths: 0,
             assists: 0,
             gpm: 0,
             xpm: 0,
+            midCount: 0,
+            safeCount: 0,
+            offCount: 0,
           };
         }
 
@@ -847,12 +849,60 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
         p.assists += pl.assists || 0;
         p.gpm += pl.gold_per_min || 0;
         p.xpm += pl.xp_per_min || 0;
+
+        // Identificação de rota pela API (lane_role: 1 = safe, 2 = mid, 3 = offlane)
+        if (pl.lane_role === 2) p.midCount += 1;
+        else if (pl.lane_role === 1) p.safeCount += 1;
+        else if (pl.lane_role === 3) p.offCount += 1;
       });
     });
 
-    return Object.values(playersMap).sort((a, b) => (a.position || 0) - (b.position || 0));
+    const teamList = Object.values(playersMap);
+    if (!teamList.length) return [];
+
+    // 1. Identifica a Posição 2 (Midlaner) pela maior frequência na rota do meio
+    let midPlayer = teamList.reduce((prev, curr) => (curr.midCount > prev.midCount ? curr : prev), teamList[0]);
+    if (midPlayer && midPlayer.midCount > 0) {
+      midPlayer.position = 2;
+    } else {
+      // Fallback: se a API não registrou lane_role, pega o 2º maior GPM
+      const sortedByGpm = [...teamList].sort((a, b) => (b.gpm / b.games) - (a.gpm / a.games));
+      midPlayer = sortedByGpm[1] || sortedByGpm[0];
+      if (midPlayer) midPlayer.position = 2;
+    }
+
+    // 2. Separa os demais jogadores entre Cores e Suportes por média de GPM
+    const remaining = teamList.filter((p) => p !== midPlayer);
+    remaining.sort((a, b) => (b.gpm / (b.games || 1)) - (a.gpm / (a.games || 1)));
+
+    if (remaining.length >= 4) {
+      const core1 = remaining[0];
+      const core2 = remaining[1];
+      const sup1 = remaining[2];
+      const sup2 = remaining[3];
+
+      // Posição 1 (Carry) vs Posição 3 (Offlane)
+      if (core1.safeCount >= core2.safeCount) {
+        core1.position = 1;
+        core2.position = 3;
+      } else {
+        core1.position = 3;
+        core2.position = 1;
+      }
+
+      // Posição 4 (Soft Support) vs Posição 5 (Hard Support)
+      sup1.position = 4;
+      sup2.position = 5;
+    } else {
+      // Fallback sequencial caso o time tenha menos de 5 registros
+      remaining.forEach((p, i) => {
+        p.position = i === 0 ? 1 : i === 1 ? 3 : i === 2 ? 4 : 5;
+      });
+    }
+
+    return teamList.sort((a, b) => (a.position || 0) - (b.position || 0));
   } catch (err) {
-    console.error("Erro ao montar escalação:", err);
+    console.error("Erro ao ordenar posições da equipe:", err);
     return [];
   }
 }
