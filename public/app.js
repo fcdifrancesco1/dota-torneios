@@ -785,6 +785,7 @@ function leagueIdByName(name) {
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
 /* ---------- Estatísticas e Escalação 100% Automáticas por Torneio ---------- */
+/* ---------- Estatísticas e Escalação 100% Diretas por Torneio ---------- */
 let leagueMatchesCache = {};
 
 async function getMatchesForLeague(leagueId) {
@@ -811,7 +812,6 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
 
     if (!teamMatches.length) return [];
 
-    // Busca os detalhes completos das partidas do time
     const fullMatches = await Promise.all(
       teamMatches.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null))
     );
@@ -852,7 +852,7 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
 
     return Object.values(playersMap).sort((a, b) => (a.position || 0) - (b.position || 0));
   } catch (err) {
-    console.error("Erro ao montar escalação automática:", err);
+    console.error("Erro ao montar escalação:", err);
     return [];
   }
 }
