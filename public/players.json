@@ -1,482 +1,97 @@
 [
-  {
-    "nickname": "skiter",
-    "team": "Team Falcons",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Malr1ne",
-    "team": "Team Falcons",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "ATF",
-    "team": "Team Falcons",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Cr1t-",
-    "team": "Team Falcons",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Sneyking",
-    "team": "Team Falcons",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "m1CKe",
-    "team": "Team Liquid",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Nisha",
-    "team": "Team Liquid",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Ace",
-    "team": "Team Liquid",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Boxi",
-    "team": "Team Liquid",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "tOfu",
-    "team": "Team Liquid",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Pure",
-    "team": "Iron Wing",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "bzm",
-    "team": "Iron Wing",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "33",
-    "team": "Iron Wing",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Ari",
-    "team": "Iron Wing",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Whitemon",
-    "team": "Iron Wing",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Nightfall",
-    "team": "Aurora Gaming",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Mikoto",
-    "team": "Aurora Gaming",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Ws",
-    "team": "Aurora Gaming",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Mira",
-    "team": "Aurora Gaming",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "kaori",
-    "team": "Aurora Gaming",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "watson",
-    "team": "Team Yandex",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "CHIRA_JUNIOR",
-    "team": "Team Yandex",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "DM",
-    "team": "Team Yandex",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Saksa",
-    "team": "Team Yandex",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Malady",
-    "team": "Team Yandex",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Ame",
-    "team": "Xtreme Gaming",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "NothingToSay",
-    "team": "Xtreme Gaming",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Xxs",
-    "team": "Xtreme Gaming",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "fy",
-    "team": "Xtreme Gaming",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "xNova",
-    "team": "Xtreme Gaming",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Kiritych~",
-    "team": "BoomBoys",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "gpk~",
-    "team": "BoomBoys",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "MieRo`",
-    "team": "BoomBoys",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Save-",
-    "team": "BoomBoys",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Kataomi",
-    "team": "BoomBoys",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Yatoro",
-    "team": "Team Spirit",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Larl",
-    "team": "Team Spirit",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Collapse",
-    "team": "Team Spirit",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "not me",
-    "team": "Team Spirit",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "rue",
-    "team": "Team Spirit",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Satanic",
-    "team": "TEAM VISION",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "No[o]ne-",
-    "team": "TEAM VISION",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Noticed",
-    "team": "TEAM VISION",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "9Class",
-    "team": "TEAM VISION",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Dukalis",
-    "team": "TEAM VISION",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "SumaiL",
-    "team": "Nigma Galaxy",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "lorenof",
-    "team": "Nigma Galaxy",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Davai",
-    "team": "Nigma Galaxy",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "OmaR",
-    "team": "Nigma Galaxy",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "GH",
-    "team": "Nigma Galaxy",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "ssnovv1",
-    "team": "HULIGANI",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Mirage`",
-    "team": "HULIGANI",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Corrupted",
-    "team": "HULIGANI",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "sayuw",
-    "team": "HULIGANI",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "RESPECT",
-    "team": "HULIGANI",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "YSR-04E",
-    "team": "Team Resilience",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Echozz",
-    "team": "Team Resilience",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "niu",
-    "team": "Team Resilience",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "planet",
-    "team": "Team Resilience",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "zzq",
-    "team": "Team Resilience",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "shiro",
-    "team": "Vici Gaming",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Xm",
-    "team": "Vici Gaming",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Bach",
-    "team": "Vici Gaming",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "XinQ",
-    "team": "Vici Gaming",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "y`",
-    "team": "Vici Gaming",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Natsumi",
-    "team": "OG",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Yopaj-",
-    "team": "OG",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Raven",
-    "team": "OG",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "TIMS",
-    "team": "OG",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "skem",
-    "team": "OG",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Yuma",
-    "team": "LGD Gaming",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "Topson",
-    "team": "LGD Gaming",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Wisper",
-    "team": "LGD Gaming",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Thiolicor",
-    "team": "LGD Gaming",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "KJ",
-    "team": "LGD Gaming",
-    "position": 5,
-    "account_id": null
-  },
-  {
-    "nickname": "Ghost",
-    "team": "GamerLegion",
-    "position": 1,
-    "account_id": null
-  },
-  {
-    "nickname": "RCY",
-    "team": "GamerLegion",
-    "position": 2,
-    "account_id": null
-  },
-  {
-    "nickname": "Fayde",
-    "team": "GamerLegion",
-    "position": 3,
-    "account_id": null
-  },
-  {
-    "nickname": "Bignum",
-    "team": "GamerLegion",
-    "position": 4,
-    "account_id": null
-  },
-  {
-    "nickname": "Speeed",
-    "team": "GamerLegion",
-    "position": 5,
-    "account_id": null
-  }
+  { "team": "LGD Gaming", "nickname": "Yuma", "position": 1, "account_id": 139876032 },
+  { "team": "LGD Gaming", "nickname": "Topson", "position": 2, "account_id": 94054712 },
+  { "team": "LGD Gaming", "nickname": "Wisper", "position": 3, "account_id": 292951948 },
+  { "team": "LGD Gaming", "nickname": "Thiolicor", "position": 4, "account_id": 118583995 },
+  { "team": "LGD Gaming", "nickname": "KJ", "position": 5, "account_id": 91369376 },
+
+  { "team": "Xtreme Gaming", "nickname": "Ame", "position": 1, "account_id": 125581247 },
+  { "team": "Xtreme Gaming", "nickname": "NothingToSay", "position": 2, "account_id": 173976120 },
+  { "team": "Xtreme Gaming", "nickname": "Xxs", "position": 3, "account_id": 129958705 },
+  { "team": "Xtreme Gaming", "nickname": "fy", "position": 4, "account_id": 101695162 },
+  { "team": "Xtreme Gaming", "nickname": "xNova", "position": 5, "account_id": 94296097 },
+
+  { "team": "Team Falcons", "nickname": "skiter", "position": 1, "account_id": 100471531 },
+  { "team": "Team Falcons", "nickname": "Malr1ne", "position": 2, "account_id": 317880638 },
+  { "team": "Team Falcons", "nickname": "ATF", "position": 3, "account_id": 183719386 },
+  { "team": "Team Falcons", "nickname": "Cr1t-", "position": 4, "account_id": 25907144 },
+  { "team": "Team Falcons", "nickname": "Sneyking", "position": 5, "account_id": 10366616 },
+
+  { "team": "Team Liquid", "nickname": "miCKe", "position": 1, "account_id": 152962063 },
+  { "team": "Team Liquid", "nickname": "Nisha", "position": 2, "account_id": 121110821 },
+  { "team": "Team Liquid", "nickname": "SabeRLighT-", "position": 3, "account_id": 138120515 },
+  { "team": "Team Liquid", "nickname": "Boxi", "position": 4, "account_id": 77446774 },
+  { "team": "Team Liquid", "nickname": "Insania", "position": 5, "account_id": 82262664 },
+
+  { "team": "BetBoom Team", "nickname": "Pure~", "position": 1, "account_id": 311360822 },
+  { "team": "BetBoom Team", "nickname": "gpk~", "position": 2, "account_id": 480412663 },
+  { "team": "BetBoom Team", "nickname": "MieRo`", "position": 3, "account_id": 251642872 },
+  { "team": "BetBoom Team", "nickname": "Save-", "position": 4, "account_id": 324480571 },
+  { "team": "BetBoom Team", "nickname": "TORONTOTOKYO", "position": 5, "account_id": 302214028 },
+
+  { "team": "Team Spirit", "nickname": "Yatoro", "position": 1, "account_id": 321580797 },
+  { "team": "Team Spirit", "nickname": "Larl", "position": 2, "account_id": 206855037 },
+  { "team": "Team Spirit", "nickname": "Collapse", "position": 3, "account_id": 302372765 },
+  { "team": "Team Spirit", "nickname": "Mira", "position": 4, "account_id": 256155000 },
+  { "team": "Team Spirit", "nickname": "Miposhka", "position": 5, "account_id": 11550182 },
+
+  { "team": "Aurora Gaming", "nickname": "23savage", "position": 1, "account_id": 375507918 },
+  { "team": "Aurora Gaming", "nickname": "Lorenof", "position": 2, "account_id": 298914619 },
+  { "team": "Aurora Gaming", "nickname": "Jabz", "position": 3, "account_id": 100477431 },
+  { "team": "Aurora Gaming", "nickname": "Q", "position": 4, "account_id": 139550034 },
+  { "team": "Aurora Gaming", "nickname": "Oli", "position": 5, "account_id": 101695162 },
+
+  { "team": "1w Team", "nickname": "Munkushi~", "position": 1, "account_id": 242832937 },
+  { "team": "1w Team", "nickname": "CHIRA_JUNIOR", "position": 2, "account_id": 181809700 },
+  { "team": "1w Team", "nickname": "Cloud", "position": 3, "account_id": 286054043 },
+  { "team": "1w Team", "nickname": "swedenstrong", "position": 4, "account_id": 195768494 },
+  { "team": "1w Team", "nickname": "RESPECT", "position": 5, "account_id": 395374165 },
+
+  { "team": "Nigma Galaxy", "nickname": "Miracle-", "position": 1, "account_id": 105248644 },
+  { "team": "Nigma Galaxy", "nickname": "SumaiL", "position": 2, "account_id": 111620041 },
+  { "team": "Nigma Galaxy", "nickname": "No[o]ne-", "position": 3, "account_id": 106573901 },
+  { "team": "Nigma Galaxy", "nickname": "GH", "position": 4, "account_id": 101356886 },
+  { "team": "Nigma Galaxy", "nickname": "KuroKy", "position": 5, "account_id": 82262664 },
+
+  { "team": "OG", "nickname": "Timado", "position": 1, "account_id": 97653729 },
+  { "team": "OG", "nickname": "bzm", "position": 2, "account_id": 93618577 },
+  { "team": "OG", "nickname": "Wisper", "position": 3, "account_id": 292951948 },
+  { "team": "OG", "nickname": "Ari", "position": 4, "account_id": 156387424 },
+  { "team": "OG", "nickname": "Ceb", "position": 5, "account_id": 88271237 },
+
+  { "team": "Vici Gaming", "nickname": "flyfly", "position": 1, "account_id": 139937922 },
+  { "team": "Vici Gaming", "nickname": "Setsu", "position": 2, "account_id": 153836240 },
+  { "team": "Vici Gaming", "nickname": "niu", "position": 3, "account_id": 157475523 },
+  { "team": "Vici Gaming", "nickname": "planet", "position": 4, "account_id": 182331313 },
+  { "team": "Vici Gaming", "nickname": "y`", "position": 5, "account_id": 111114687 },
+
+  { "team": "Team Resilience", "nickname": "Erika", "position": 1, "account_id": 293230897 },
+  { "team": "Team Resilience", "nickname": "Echo", "position": 2, "account_id": 170942468 },
+  { "team": "Team Resilience", "nickname": "Beyond", "position": 3, "account_id": 137193239 },
+  { "team": "Team Resilience", "nickname": "plAnet", "position": 4, "account_id": 182331313 },
+  { "team": "Team Resilience", "nickname": "RedPanda", "position": 5, "account_id": 137402636 },
+
+  { "team": "GamerLegion", "nickname": "Ghost", "position": 1, "account_id": 224401649 },
+  { "team": "GamerLegion", "nickname": "Stormstormer", "position": 2, "account_id": 86799358 },
+  { "team": "GamerLegion", "nickname": "Fbz", "position": 3, "account_id": 159020918 },
+  { "team": "GamerLegion", "nickname": "Scofield", "position": 4, "account_id": 156398142 },
+  { "team": "GamerLegion", "nickname": "Panda", "position": 5, "account_id": 132309493 },
+
+  { "team": "Team Yandex", "nickname": "Nightfall", "position": 1, "account_id": 124803991 },
+  { "team": "Team Yandex", "nickname": "depressed kid", "position": 2, "account_id": 386287475 },
+  { "team": "Team Yandex", "nickname": "Noticed", "position": 3, "account_id": 167692239 },
+  { "team": "Team Yandex", "nickname": "Antares", "position": 4, "account_id": 208536830 },
+  { "team": "Team Yandex", "nickname": "Dukalis", "position": 5, "account_id": 70388657 },
+
+  { "team": "TEAM VISION", "nickname": "V-Tune", "position": 1, "account_id": 105178614 },
+  { "team": "TEAM VISION", "nickname": "mellojul", "position": 2, "account_id": 181716137 },
+  { "team": "TEAM VISION", "nickname": "Sunlight", "position": 3, "account_id": 113995822 },
+  { "team": "TEAM VISION", "nickname": "Hellsing", "position": 4, "account_id": 169827599 },
+  { "team": "TEAM VISION", "nickname": "HappyDyurara", "position": 5, "account_id": 140153524 },
+
+  { "team": "HULIGANI", "nickname": "Daxak", "position": 1, "account_id": 162961889 },
+  { "team": "HULIGANI", "nickname": "Ainkrad", "position": 2, "account_id": 250114507 },
+  { "team": "HULIGANI", "nickname": "Vazya", "position": 3, "account_id": 159938830 },
+  { "team": "HULIGANI", "nickname": "Danzel", "position": 4, "account_id": 143893498 },
+  { "team": "HULIGANI", "nickname": "Prada", "position": 5, "account_id": 116262857 }
 ]
