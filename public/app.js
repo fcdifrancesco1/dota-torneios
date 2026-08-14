@@ -858,47 +858,85 @@ async function getLeaguePlayersStats(leagueId) {
   }
 }
 
+// Cache para as médias do torneio via STRATZ
+let leagueStatsCache = {};
+
+async function fetchLeaguePlayerStats(leagueId) {
+  if (!leagueId) return [];
+  if (leagueStatsCache[leagueId]) return leagueStatsCache[leagueId];
+
+  try {
+    const data = await stratzQuery(
+      `query($id: Int!) {
+        league(id: $id) {
+          players {
+            steamAccountId
+            matchCount
+            winCount
+            kills
+            deaths
+            assists
+            goldPerMinute
+            experiencePerMinute
+            steamAccount {
+              name
+              proSteamAccount {
+                name
+              }
+            }
+          }
+        }
+      }`,
+      { id: Number(leagueId) }
+    );
+
+    const players = (data && data.league && data.league.players) || [];
+    leagueStatsCache[leagueId] = players;
+    return players;
+  } catch (err) {
+    console.error("Erro ao buscar stats da liga no STRATZ:", err);
+    return [];
+  }
+}
+// Cache para as médias do torneio via STRATZ
 async function computeRosterStats(roster, teamName, leagueId) {
   if (!leagueId || !roster.length) return;
 
   try {
-    const allLeaguePlayers = await getLeaguePlayersStats(leagueId);
-    if (!allLeaguePlayers.length) return;
+    const allPlayers = await fetchLeaguePlayerStats(leagueId);
+    if (!allPlayers.length) return;
 
     roster.forEach((p) => {
-      // 1. Tenta encontrar pelo account_id
-      let stats = allLeaguePlayers.find(
-        (lp) => p.account_id && Number(lp.account_id) === Number(p.account_id)
+      // 1. Match por Steam Account ID
+      let target = allPlayers.find(
+        (sp) => p.account_id && Number(sp.steamAccountId) === Number(p.account_id)
       );
 
-      // 2. Se não achar pelo ID, tenta pelo nome registrado na Valve ou nick
-      if (!stats) {
-        stats = allLeaguePlayers.find((lp) => {
-          const lpName = normalizeNick(lp.name);
-          const pNick = normalizeNick(p.nickname);
-          return lpName && pNick && (lpName.includes(pNick) || pNick.includes(lpName));
+      // 2. Match por Pro Name ou Nickname
+      if (!target) {
+        const pNick = normalizeNick(p.nickname);
+        target = allPlayers.find((sp) => {
+          const proName = normalizeNick(sp.steamAccount?.proSteamAccount?.name);
+          const steamName = normalizeNick(sp.steamAccount?.name);
+          return (proName && (proName.includes(pNick) || pNick.includes(proName))) ||
+                 (steamName && (steamName.includes(pNick) || pNick.includes(steamName)));
         });
       }
 
-      if (stats && stats.games_played > 0) {
-        // Vincula o ID caso ainda não estivesse fixado
-        if (!p.account_id && stats.account_id) {
-          p.account_id = stats.account_id;
-        }
-
-        const games = stats.games_played;
+      if (target && target.matchCount > 0) {
+        const games = target.matchCount;
         p._stats = {
           games: games,
-          kills: stats.kills,
-          deaths: stats.deaths,
-          assists: stats.assists,
-          gpm: stats.gpm ? stats.gpm * games : 0,
-          xpm: stats.xpm ? stats.xpm * games : 0,
+          kills: (target.kills || 0) * games,
+          deaths: (target.deaths || 0) * games,
+          assists: (target.assists || 0) * games,
+          gpm: (target.goldPerMinute || 0) * games,
+          xpm: (target.experiencePerMinute || 0) * games,
         };
       }
     });
   } catch (err) {
-    console.error("Erro em computeRosterStats:", err);
+    console.error("Erro ao calcular stats do roster:", err);
   }
 }
 
@@ -954,7 +992,7 @@ async function openAgendaMatch(item) {
       <div>${item.timeA || "A definir"} <span class="score" style="font-size:20px">${item.formato || "vs"}</span> ${item.timeB || "A definir"}</div>
       <div class="match-meta" style="justify-content:center;gap:16px"><span>${when}</span>${item.fase ? `<span>${item.fase}</span>` : ""}</div>
     </div>
-    ${!leagueId ? `<div class="section-sub" style="text-align:center;margin-bottom:12px">Médias indisponíveis — torneio "${item.torneio}" não encontrado na OpenDota.</div>` : ""}
+    ${!leagueId ? `<div class="section-sub" style="text-align:center;margin-bottom:12px">Médias indisponíveis — torneio "${item.torneio}" não encontrado.</div>` : ""}
     <div class="team-block-title">${item.timeA || "Time A"}</div>
     ${rosterRows(rosterA)}
     <div class="team-block-title">${item.timeB || "Time B"}</div>
