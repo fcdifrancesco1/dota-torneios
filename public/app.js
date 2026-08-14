@@ -773,24 +773,10 @@ async function determineFeaturedLeague() {
   return null;
 }
 
-let playersDataCache = null;
-async function ensurePlayersData() {
-  if (playersDataCache) return playersDataCache;
-  try {
-    const res = await fetch(`/players.json?_=${Date.now()}`, { cache: "no-store" });
-    playersDataCache = res.ok ? await res.json() : [];
-  } catch { playersDataCache = []; }
-  return playersDataCache;
-}
 function teamNameMatches(a, b) {
   const na = normalizeTeamName(a), nb = normalizeTeamName(b);
   if (!na || !nb) return false;
   return na === nb || na.includes(nb) || nb.includes(na);
-}
-function rosterForTeam(playersData, teamName) {
-  return playersData
-    .filter((p) => teamNameMatches(p.team, teamName))
-    .sort((a, b) => (a.position || 99) - (b.position || 99));
 }
 function leagueIdByName(name) {
   const l = (allLeagues || []).find((x) => x.name === name);
@@ -798,164 +784,118 @@ function leagueIdByName(name) {
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-/* ---------- Estatísticas de jogadores por Torneio (STRATZ Series Consolidadas) ---------- */
-let leagueStatsCache = {};
+/* ---------- Estatísticas e Escalação 100% Automáticas por Torneio ---------- */
+let leagueMatchesCache = {};
 
-async function fetchLeaguePlayerStats(leagueId) {
-  if (!leagueId) return {};
-  if (leagueStatsCache[leagueId]) return leagueStatsCache[leagueId];
-
+async function getMatchesForLeague(leagueId) {
+  if (!leagueId) return [];
+  if (leagueMatchesCache[leagueId]) return leagueMatchesCache[leagueId];
   try {
-    // Busca as partidas de todas as séries do torneio via STRATZ em 1 único payload
-    const data = await stratzQuery(
-      `query($id: Int!) {
-        league(id: $id) {
-          series {
-            matches {
-              players {
-                steamAccountId
-                kills
-                deaths
-                assists
-                goldPerMinute
-                experiencePerMinute
-                steamAccount {
-                  name
-                  proSteamAccount {
-                    name
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`,
-      { id: Number(leagueId) }
-    );
-
-    const seriesList = (data && data.league && data.league.series) || [];
-    const playerAgg = {};
-
-    seriesList.forEach((s) => {
-      (s.matches || []).forEach((m) => {
-        (m.players || []).forEach((pl) => {
-          const id = pl.steamAccountId;
-          if (!id) return;
-
-          if (!playerAgg[id]) {
-            playerAgg[id] = {
-              steamAccountId: id,
-              proName: pl.steamAccount?.proSteamAccount?.name || null,
-              steamName: pl.steamAccount?.name || null,
-              matchCount: 0,
-              kills: 0,
-              deaths: 0,
-              assists: 0,
-              gpm: 0,
-              xpm: 0,
-            };
-          }
-
-          const p = playerAgg[id];
-          p.matchCount++;
-          p.kills += pl.kills || 0;
-          p.deaths += pl.deaths || 0;
-          p.assists += pl.assists || 0;
-          p.gpm += pl.goldPerMinute || 0;
-          p.xpm += pl.experiencePerMinute || 0;
-        });
-      });
-    });
-
-    leagueStatsCache[leagueId] = playerAgg;
-    return playerAgg;
-  } catch (err) {
-    console.error("Erro ao buscar stats via STRATZ Series:", err);
-    return {};
+    let matches = await odFetch(`leagues/${leagueId}/matches`);
+    matches = await enrichTeamNames(matches);
+    leagueMatchesCache[leagueId] = matches || [];
+    return leagueMatchesCache[leagueId];
+  } catch (e) {
+    console.error("Erro ao buscar partidas da liga:", e);
+    return [];
   }
 }
 
-async function computeRosterStats(roster, teamName, leagueId) {
-  if (!leagueId || !roster.length) return;
-
+async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
+  if (!teamName || !leagueId) return [];
   try {
-    const playerAgg = await fetchLeaguePlayerStats(leagueId);
-    const allAggList = Object.values(playerAgg);
-    if (!allAggList.length) return;
+    const allMatches = await getMatchesForLeague(leagueId);
+    const teamMatches = allMatches
+      .filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName))
+      .slice(0, cap);
 
-    roster.forEach((p) => {
-      // 1. Busca por Steam Account ID (precisão total)
-      let target = p.account_id ? playerAgg[p.account_id] : null;
+    if (!teamMatches.length) return [];
 
-      // 2. Busca flexível por Pro Name ou Nickname na Steam
-      if (!target) {
-        const pNick = normalizeNick(p.nickname);
-        target = allAggList.find((sp) => {
-          const pro = normalizeNick(sp.proName);
-          const steam = normalizeNick(sp.steamName);
-          return (pro && (pro.includes(pNick) || pNick.includes(pro))) ||
-                 (steam && (steam.includes(pNick) || pNick.includes(steam)));
-        });
-      }
+    // Busca os detalhes completos das partidas do time
+    const fullMatches = await Promise.all(
+      teamMatches.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null))
+    );
 
-      if (target && target.matchCount > 0) {
-        p._stats = {
-          games: target.matchCount,
-          kills: target.kills,
-          deaths: target.deaths,
-          assists: target.assists,
-          gpm: target.gpm,
-          xpm: target.xpm,
-        };
-      }
+    const playersMap = {};
+
+    fullMatches.filter(Boolean).forEach((match) => {
+      const isRadiant = teamNameMatches(match.radiant_name, teamName);
+      const sidePlayers = (match.players || []).filter((p) =>
+        isRadiant ? p.player_slot < 128 : p.player_slot >= 128
+      );
+
+      sidePlayers.forEach((pl, idx) => {
+        const id = pl.account_id || pl.personaname || `player_${idx}`;
+        if (!playersMap[id]) {
+          playersMap[id] = {
+            account_id: pl.account_id,
+            nickname: pl.name || pl.personaname || `Jogador ${idx + 1}`,
+            position: idx + 1,
+            games: 0,
+            kills: 0,
+            deaths: 0,
+            assists: 0,
+            gpm: 0,
+            xpm: 0,
+          };
+        }
+
+        const p = playersMap[id];
+        p.games += 1;
+        p.kills += pl.kills || 0;
+        p.deaths += pl.deaths || 0;
+        p.assists += pl.assists || 0;
+        p.gpm += pl.gold_per_min || 0;
+        p.xpm += pl.xp_per_min || 0;
+      });
     });
+
+    return Object.values(playersMap).sort((a, b) => (a.position || 0) - (b.position || 0));
   } catch (err) {
-    console.error("Erro ao calcular stats do roster:", err);
+    console.error("Erro ao montar escalação automática:", err);
+    return [];
   }
 }
 
 async function openAgendaMatch(item) {
   $("#match-modal").classList.remove("hidden");
   stopLiveMinimap();
-  $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação...</div>`;
-  
-  const playersData = await ensurePlayersData();
-  const rosterA = rosterForTeam(playersData, item.timeA);
-  const rosterB = rosterForTeam(playersData, item.timeB);
+  $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação e estatísticas...</div>`;
+
+  await ensureLeaguesLoaded().catch(() => {});
+  const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
   const when = new Date(item.data).toLocaleString("pt-BR", { 
     day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" 
   });
 
-  await ensureLeaguesLoaded().catch(() => {});
-  const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
-  
+  let rosterA = [], rosterB = [];
+
   if (leagueId) {
-    await Promise.all([
-      computeRosterStats(rosterA, item.timeA, leagueId),
-      computeRosterStats(rosterB, item.timeB, leagueId),
+    [rosterA, rosterB] = await Promise.all([
+      getTeamRosterAndStats(item.timeA, leagueId),
+      getTeamRosterAndStats(item.timeB, leagueId),
     ]);
   }
 
   const fmt = (n) => (n == null || isNaN(n) ? "-" : Number(n).toFixed(1));
   const rosterRows = (roster) => {
-    if (!roster.length) return `<div class="empty-state">Escalação não cadastrada ainda.</div>`;
+    if (!roster.length) return `<div class="empty-state">Nenhuma partida finalizada encontrada para este time no torneio ainda.</div>`;
     return `<table class="player-table">
       <thead><tr><th>Posição</th><th>Jogador</th><th>K</th><th>D</th><th>A</th><th>KDA</th><th>GPM</th><th>XPM</th></tr></thead>
       <tbody>${roster.map((p) => {
-        const s = p._stats && p._stats.games ? p._stats : null;
-        const k = s ? s.kills / s.games : null;
-        const d = s ? s.deaths / s.games : null;
-        const a = s ? s.assists / s.games : null;
-        const kda = s ? (d > 0 ? (k + a) / d : k + a) : null;
+        const k = p.games ? p.kills / p.games : null;
+        const d = p.games ? p.deaths / p.games : null;
+        const a = p.games ? p.assists / p.games : null;
+        const kda = p.games ? (d > 0 ? (k + a) / d : k + a) : null;
         return `<tr>
-          <td>${NUMERIC_POSITION_LABELS[p.position] || p.position || "—"}</td>
+          <td>${NUMERIC_POSITION_LABELS[p.position] || `Posição ${p.position}` || "—"}</td>
           <td>${p.nickname}</td>
           <td class="numeric">${fmt(k)}</td>
           <td class="numeric">${fmt(d)}</td>
           <td class="numeric">${fmt(a)}</td>
           <td class="numeric">${fmt(kda)}</td>
-          <td class="numeric">${s ? Math.round(s.gpm / s.games) : "-"}</td>
-          <td class="numeric">${s ? Math.round(s.xpm / s.games) : "-"}</td>
+          <td class="numeric">${p.games ? Math.round(p.gpm / p.games) : "-"}</td>
+          <td class="numeric">${p.games ? Math.round(p.xpm / p.games) : "-"}</td>
         </tr>`;
       }).join("")}</tbody>
     </table>`;
