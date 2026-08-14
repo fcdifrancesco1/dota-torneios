@@ -1298,94 +1298,57 @@ $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click"
 }));
 
 /* ---------- Ranking MMR (STRATZ Leaderboard Aprimorado) ---------- */
+/* ---------- Ranking MMR Oficial (Valve via Netlify Function) ---------- */
 async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
-  body.innerHTML = `<tr><td colspan="5" class="empty-state">Carregando ranking...</td></tr>`;
+  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando Leaderboard Oficial da Valve...</td></tr>`;
 
   try {
-    const stratzDivision = REGION_TO_STRATZ_DIVISION[division] || "EUROPE";
-    const data = await stratzQuery(
-      `query($div: LeaderboardDivision) {
-        leaderboard {
-          season(request: { leaderBoardDivision: $div, take: 50 }) {
-            playerCount
-            players {
-              rank
-              steamAccountId
-              winRate
-              matchCount
-              position
-              topHeroOne
-              topHeroTwo
-              topHeroThree
-              steamAccount {
-                name
-                avatar
-                proSteamAccount {
-                  name
-                  team {
-                    name
-                    tag
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`,
-      { div: stratzDivision }
-    );
+    // Chama a Netlify Function configurada
+    const res = await fetch(`/.netlify/functions/leaderboard?division=${encodeURIComponent(division)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
 
     if (requestId !== window.__rankingRequestId) return;
-    const players = (data && data.leaderboard && data.leaderboard.season && data.leaderboard.season.players) || [];
-    
-    if (!players.length) {
-      body.innerHTML = `<tr><td colspan="5" class="empty-state">Nenhum jogador encontrado para essa região.</td></tr>`;
+
+    if (!data.ok || !data.leaderboard || !data.leaderboard.length) {
+      body.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhum jogador retornado pela Valve para essa região.</td></tr>`;
       return;
     }
 
-    const total = data.leaderboard.season.playerCount || 0;
-    $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores rankeados nessa região — Dados oficiais STRATZ`;
+    const players = data.leaderboard;
+    const total = data.total_rows || players.length;
+    const postTime = data.time_posted 
+      ? new Date(data.time_posted * 1000).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) 
+      : "";
 
-    body.innerHTML = players.map((p, i) => {
-      const acc = p.steamAccount || {};
-      const pro = acc.proSteamAccount;
-      
-      // Prioriza o nome profissional oficial registrado, senão o nick da Steam
-      const displayName = pro?.name || acc.name || (p.steamAccountId ? `Jogador #${p.steamAccountId}` : "Anônimo");
-      const teamTag = pro?.team?.tag ? `<span class="team-tag" style="color:var(--accent,#e0a020);font-weight:700;margin-right:6px">[${pro.team.tag}]</span>` : "";
-      const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="" style="width:28px;height:28px;border-radius:50%;margin-right:8px;vertical-align:middle">` : `<span class="player-avatar player-avatar-empty" style="width:28px;height:28px;border-radius:50%;display:inline-block;background:#333;margin-right:8px;vertical-align:middle"></span>`;
+    $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores na tabela oficial — Atualizado pela Valve em ${postTime}`;
 
-      // Estatísticas ou fallback informativo
-      const hasMatchData = p.matchCount && p.matchCount > 0;
-      const winPct = hasMatchData ? `${Math.round(p.winRate || 0)}%` : `<span style="color:#666;font-size:12px">Privado</span>`;
-      
-      const posLabel = p.position && POSITION_LABELS[p.position] 
-        ? POSITION_LABELS[p.position].replace(/ \(.+\)/, "") 
-        : (hasMatchData ? "—" : `<span style="color:#666;font-size:12px">Privado</span>`);
+    // Exibe os 100 primeiros colocados
+    const topPlayers = players.slice(0, 100);
 
-      const heroes = [p.topHeroOne, p.topHeroTwo, p.topHeroThree].filter(Boolean)
-        .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}" style="width:24px;height:24px;border-radius:3px;margin-right:4px">`).join("");
+    body.innerHTML = topPlayers.map((p) => {
+      const team = p.team_tag ? `<span class="team-tag" style="color:var(--accent,#e0a020);font-weight:bold;margin-right:6px">[${p.team_tag}]</span>` : "";
+      const sponsor = p.sponsor ? ` <span style="color:#888;font-size:12px">(${p.sponsor})</span>` : "";
+      const country = p.country ? p.country.toUpperCase() : "—";
 
       return `<tr>
-        <td style="font-weight:bold;color:var(--accent,#e0a020)">${p.rank || i + 1}</td>
+        <td style="font-weight:bold;color:var(--accent,#e0a020);width:60px">${p.rank}</td>
         <td>
           <div style="display:flex;align-items:center">
-            ${avatar}
-            <span>${teamTag}${displayName}</span>
+            <span style="font-weight:600">${team}${p.name || "Anônimo"}${sponsor}</span>
           </div>
         </td>
-        <td class="numeric">${winPct}</td>
-        <td>${posLabel}</td>
-        <td><div class="ranking-heroes" style="display:flex;align-items:center">${heroes || `<span style="color:#555;font-size:12px">—</span>`}</div></td>
+        <td><span class="country-badge" style="font-size:12px;opacity:0.85">${country}</span></td>
+        <td class="numeric" style="color:var(--text-dim, #888);font-size:13px">${p.rank <= 10 ? "Top 10" : p.rank <= 100 ? "Top 100" : "Immortal"}</td>
       </tr>`;
     }).join("");
 
   } catch (err) {
     if (requestId !== window.__rankingRequestId) return;
-    body.innerHTML = `<tr><td colspan="5" class="empty-state" style="white-space:normal">Erro ao carregar o ranking.<br>${err.message || ""}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Erro ao carregar o ranking oficial.<br>${err.message || ""}</td></tr>`;
   }
 }
 

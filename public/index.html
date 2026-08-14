@@ -88,6 +88,7 @@
   </div>
 
   <!-- TELA: RANKING MMR -->
+  <!-- TELA: RANKING MMR OFICIAL -->
   <section id="view-ranking" class="hidden">
     <nav id="region-tabs">
       <button class="region-tab-btn" data-region="americas">Américas</button>
@@ -97,7 +98,14 @@
     </nav>
     <div id="ranking-updated" class="section-sub"></div>
     <table id="ranking-table">
-      <thead><tr><th>#</th><th>Jogador</th><th>Vitórias</th><th>Posição</th><th>Heróis mais jogados</th></tr></thead>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Jogador</th>
+          <th>País</th>
+          <th class="numeric">Rank</th>
+        </tr>
+      </thead>
       <tbody id="ranking-body"></tbody>
     </table>
   </section>
