@@ -1297,54 +1297,95 @@ $$("#region-tabs .region-tab-btn").forEach((btn) => btn.addEventListener("click"
   loadRanking(btn.dataset.region);
 }));
 
+/* ---------- Ranking MMR (STRATZ Leaderboard Aprimorado) ---------- */
 async function loadRanking(division) {
   const requestId = ++window.__rankingRequestId || (window.__rankingRequestId = 1);
   const body = $("#ranking-body");
   $("#ranking-updated").textContent = "";
-  body.innerHTML = `<tr><td colspan="4" class="empty-state">Carregando...</td></tr>`;
+  body.innerHTML = `<tr><td colspan="5" class="empty-state">Carregando ranking...</td></tr>`;
+
   try {
     const stratzDivision = REGION_TO_STRATZ_DIVISION[division] || "EUROPE";
     const data = await stratzQuery(
       `query($div: LeaderboardDivision) {
         leaderboard {
-          season(request: { leaderBoardDivision: $div }) {
+          season(request: { leaderBoardDivision: $div, take: 50 }) {
             playerCount
             players {
-              rank steamAccountId winRate matchCount position
-              topHeroOne topHeroTwo topHeroThree
-              steamAccount { name avatar }
+              rank
+              steamAccountId
+              winRate
+              matchCount
+              position
+              topHeroOne
+              topHeroTwo
+              topHeroThree
+              steamAccount {
+                name
+                avatar
+                proSteamAccount {
+                  name
+                  team {
+                    name
+                    tag
+                  }
+                }
+              }
             }
           }
         }
       }`,
       { div: stratzDivision }
     );
+
     if (requestId !== window.__rankingRequestId) return;
     const players = (data && data.leaderboard && data.leaderboard.season && data.leaderboard.season.players) || [];
+    
     if (!players.length) {
-      body.innerHTML = `<tr><td colspan="4" class="empty-state">Nenhum jogador encontrado pra essa região.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5" class="empty-state">Nenhum jogador encontrado para essa região.</td></tr>`;
       return;
     }
-    const total = data.leaderboard.season.playerCount;
-    $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores rankeados nessa região — dados do STRATZ`;
+
+    const total = data.leaderboard.season.playerCount || 0;
+    $("#ranking-updated").textContent = `${total.toLocaleString("pt-BR")} jogadores rankeados nessa região — Dados oficiais STRATZ`;
+
     body.innerHTML = players.map((p, i) => {
       const acc = p.steamAccount || {};
-      const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="">` : `<span class="player-avatar player-avatar-empty"></span>`;
-      const winPct = p.matchCount ? Math.round(p.winRate || 0) : "-";
+      const pro = acc.proSteamAccount;
+      
+      // Prioriza o nome profissional oficial registrado, senão o nick da Steam
+      const displayName = pro?.name || acc.name || (p.steamAccountId ? `Jogador #${p.steamAccountId}` : "Anônimo");
+      const teamTag = pro?.team?.tag ? `<span class="team-tag" style="color:var(--accent,#e0a020);font-weight:700;margin-right:6px">[${pro.team.tag}]</span>` : "";
+      const avatar = acc.avatar ? `<img class="player-avatar" src="${acc.avatar}" alt="" style="width:28px;height:28px;border-radius:50%;margin-right:8px;vertical-align:middle">` : `<span class="player-avatar player-avatar-empty" style="width:28px;height:28px;border-radius:50%;display:inline-block;background:#333;margin-right:8px;vertical-align:middle"></span>`;
+
+      // Estatísticas ou fallback informativo
+      const hasMatchData = p.matchCount && p.matchCount > 0;
+      const winPct = hasMatchData ? `${Math.round(p.winRate || 0)}%` : `<span style="color:#666;font-size:12px">Privado</span>`;
+      
+      const posLabel = p.position && POSITION_LABELS[p.position] 
+        ? POSITION_LABELS[p.position].replace(/ \(.+\)/, "") 
+        : (hasMatchData ? "—" : `<span style="color:#666;font-size:12px">Privado</span>`);
+
       const heroes = [p.topHeroOne, p.topHeroTwo, p.topHeroThree].filter(Boolean)
-        .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}">`).join("");
-      const posLabel = p.position && POSITION_LABELS[p.position] ? POSITION_LABELS[p.position].replace(/ \(.+\)/, "") : "—";
+        .map((hid) => `<img class="ranking-hero" src="${heroImg(hid)}" alt="${heroName(hid)}" title="${heroName(hid)}" style="width:24px;height:24px;border-radius:3px;margin-right:4px">`).join("");
+
       return `<tr>
-        <td>${i + 1}</td>
-        <td><div class="player-country">${avatar}${acc.name || `Jogador ${p.steamAccountId}`}</div></td>
-        <td class="numeric">${winPct}${p.matchCount ? "%" : ""}</td>
+        <td style="font-weight:bold;color:var(--accent,#e0a020)">${p.rank || i + 1}</td>
+        <td>
+          <div style="display:flex;align-items:center">
+            ${avatar}
+            <span>${teamTag}${displayName}</span>
+          </div>
+        </td>
+        <td class="numeric">${winPct}</td>
         <td>${posLabel}</td>
-        <td><div class="ranking-heroes">${heroes}</div></td>
+        <td><div class="ranking-heroes" style="display:flex;align-items:center">${heroes || `<span style="color:#555;font-size:12px">—</span>`}</div></td>
       </tr>`;
     }).join("");
+
   } catch (err) {
     if (requestId !== window.__rankingRequestId) return;
-    body.innerHTML = `<tr><td colspan="4" class="empty-state" style="white-space:normal">Erro ao carregar o ranking.<br>${err.message || ""}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="5" class="empty-state" style="white-space:normal">Erro ao carregar o ranking.<br>${err.message || ""}</td></tr>`;
   }
 }
 
