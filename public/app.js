@@ -823,69 +823,61 @@ async function ensurePlayersData() {
   } catch { playersDataCache = []; }
   return playersDataCache;
 }
+function teamNameMatches(a, b) {
+  const na = normalizeTeamName(a), nb = normalizeTeamName(b);
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
 function rosterForTeam(playersData, teamName) {
-  const key = normalizeTeamName(teamName);
   return playersData
-    .filter((p) => normalizeTeamName(p.team) === key)
+    .filter((p) => teamNameMatches(p.team, teamName))
     .sort((a, b) => (a.position || 99) - (b.position || 99));
 }
 const NUMERIC_POSITION_LABELS = { 1: "Posição 1", 2: "Posição 2", 3: "Posição 3", 4: "Posição 4", 5: "Posição 5" };
-// média de KDA/GPM/XPM de um jogador dentro de um torneio específico (precisa do account_id cadastrado)
-async function fetchPlayerTournamentAvg(accountId, leagueId) {
-  if (!accountId || !leagueId) return null;
-  try {
-    const matches = await odFetch(`players/${accountId}/matches?league_id=${leagueId}`);
-    if (!Array.isArray(matches) || !matches.length) return null;
-    const avg = (key) => matches.reduce((sum, m) => sum + (m[key] || 0), 0) / matches.length;
-    const k = avg("kills"), d = avg("deaths"), a = avg("assists");
-    return {
-      games: matches.length,
-      kills: k, deaths: d, assists: a,
-      kda: d > 0 ? (k + a) / d : (k + a),
-      gpm: avg("gold_per_min"), xpm: avg("xp_per_min"),
-    };
-  } catch { return null; }
-}
 function leagueIdByName(name) {
   const l = (allLeagues || []).find((x) => x.name === name);
   return l ? l.leagueid : null;
 }
-
-// tenta descobrir o account_id de quem ainda não tem, olhando uma partida qualquer do time
-// no torneio e casando o "personaname" (nick usado na Steam naquele jogo) com o nick da escalação.
-// guarda o que já descobriu em cache local pra não repetir a busca toda vez que o modal abrir.
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
-function accountIdCacheKey(nickname, team) { return `${normalizeTeamName(team)}::${normalizeNick(nickname)}`; }
-async function discoverAccountIds(roster, teamName, leagueId) {
-  const idCache = lsGet("dota:discoveredAccountIds", {});
-  roster.forEach((p) => {
-    if (!p.account_id) { const cached = idCache[accountIdCacheKey(p.nickname, teamName)]; if (cached) p.account_id = cached; }
-  });
-  const missing = roster.filter((p) => !p.account_id);
-  if (!missing.length) return;
+
+// busca até `cap` partidas completas do time no torneio e casa cada jogador da escalação pelo
+// account_id (se já soubermos) ou pelo "personaname" (nick usado na Steam naquela partida).
+// junta várias partidas em vez de uma só — mais chance de achar cada jogador com o nick certo,
+// e o detalhe completo da partida (diferente do endpoint resumido) já traz GPM/XPM certos.
+async function computeRosterStats(roster, teamName, leagueId, cap = 30) {
+  if (!leagueId) return;
   try {
     let matches = await odFetch(`leagues/${leagueId}/matches`);
     matches = await enrichTeamNames(matches);
-    const key = normalizeTeamName(teamName);
-    const teamMatch = matches.find((m) =>
-      normalizeTeamName(m.radiant_name) === key || normalizeTeamName(m.dire_name) === key
-    );
-    if (!teamMatch) return;
-    const full = await odFetch(`matches/${teamMatch.match_id}`);
-    const players = full.players || [];
-    let changed = false;
-    missing.forEach((p) => {
-      const target = normalizeNick(p.nickname);
-      const found = players.find((pl) => normalizeNick(pl.personaname) === target);
-      if (found && found.account_id) {
-        p.account_id = found.account_id;
-        idCache[accountIdCacheKey(p.nickname, teamName)] = found.account_id;
-        changed = true;
-      }
+    const teamMatches = matches.filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName)).slice(0, cap);
+    if (!teamMatches.length) return;
+    const fulls = await Promise.all(teamMatches.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null)));
+
+    const idCache = lsGet("dota:discoveredAccountIds", {});
+    roster.forEach((p) => {
+      if (!p.account_id) { const cached = idCache[accountIdCacheKey(p.nickname, teamName)]; if (cached) p.account_id = cached; }
+      p._stats = { games: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, xpm: 0 };
     });
-    if (changed) lsSet("dota:discoveredAccountIds", idCache);
-  } catch { /* segue sem esses account_id — as médias ficam "-" pra quem não achou */ }
+
+    let idCacheChanged = false;
+    fulls.filter(Boolean).forEach((full) => {
+      (full.players || []).forEach((pl) => {
+        const target = roster.find((p) => (p.account_id && p.account_id === pl.account_id) || normalizeNick(p.nickname) === normalizeNick(pl.personaname));
+        if (!target) return;
+        if (!target.account_id && pl.account_id) {
+          target.account_id = pl.account_id;
+          idCache[accountIdCacheKey(target.nickname, teamName)] = pl.account_id;
+          idCacheChanged = true;
+        }
+        const s = target._stats;
+        s.games++; s.kills += pl.kills || 0; s.deaths += pl.deaths || 0; s.assists += pl.assists || 0;
+        s.gpm += pl.gold_per_min || 0; s.xpm += pl.xp_per_min || 0;
+      });
+    });
+    if (idCacheChanged) lsSet("dota:discoveredAccountIds", idCache);
+  } catch { /* segue sem estatísticas — a tabela mostra "-" pra quem não achou */ }
 }
+function accountIdCacheKey(nickname, team) { return `${normalizeTeamName(team)}::${normalizeNick(nickname)}`; }
 
 async function openAgendaMatch(item) {
   $("#match-modal").classList.remove("hidden");
@@ -898,15 +890,11 @@ async function openAgendaMatch(item) {
 
   await ensureLeaguesLoaded().catch(() => {});
   const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
-  const statsById = {};
   if (leagueId) {
     await Promise.all([
-      discoverAccountIds(rosterA, item.timeA, leagueId),
-      discoverAccountIds(rosterB, item.timeB, leagueId),
+      computeRosterStats(rosterA, item.timeA, leagueId),
+      computeRosterStats(rosterB, item.timeB, leagueId),
     ]);
-    await Promise.all([...rosterA, ...rosterB].map(async (p) => {
-      if (p.account_id) statsById[p.account_id] = await fetchPlayerTournamentAvg(p.account_id, leagueId);
-    }));
   }
 
   const fmt = (n) => (n == null ? "-" : n.toFixed(1));
@@ -915,16 +903,18 @@ async function openAgendaMatch(item) {
     return `<table class="player-table">
       <thead><tr><th>Posição</th><th>Jogador</th><th>K</th><th>D</th><th>A</th><th>KDA</th><th>GPM</th><th>XPM</th></tr></thead>
       <tbody>${roster.map((p) => {
-        const s = p.account_id ? statsById[p.account_id] : null;
+        const s = p._stats && p._stats.games ? p._stats : null;
+        const k = s ? s.kills / s.games : null, d = s ? s.deaths / s.games : null, a = s ? s.assists / s.games : null;
+        const kda = s ? (d > 0 ? (k + a) / d : k + a) : null;
         return `<tr>
           <td>${NUMERIC_POSITION_LABELS[p.position] || p.position || "—"}</td>
           <td>${p.nickname}</td>
-          <td class="numeric">${s ? fmt(s.kills) : "-"}</td>
-          <td class="numeric">${s ? fmt(s.deaths) : "-"}</td>
-          <td class="numeric">${s ? fmt(s.assists) : "-"}</td>
-          <td class="numeric">${s ? fmt(s.kda) : "-"}</td>
-          <td class="numeric">${s ? Math.round(s.gpm) : "-"}</td>
-          <td class="numeric">${s ? Math.round(s.xpm) : "-"}</td>
+          <td class="numeric">${fmt(k)}</td>
+          <td class="numeric">${fmt(d)}</td>
+          <td class="numeric">${fmt(a)}</td>
+          <td class="numeric">${fmt(kda)}</td>
+          <td class="numeric">${s ? Math.round(s.gpm / s.games) : "-"}</td>
+          <td class="numeric">${s ? Math.round(s.xpm / s.games) : "-"}</td>
         </tr>`;
       }).join("")}</tbody>
     </table>`;
