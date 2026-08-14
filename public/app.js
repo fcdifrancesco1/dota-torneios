@@ -1375,6 +1375,18 @@ $("#hero-search").addEventListener("input", (e) => {
 });
 
 /* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
+/* ---------- Normalizador de Posições (1 a 5) ---------- */
+function parsePositionNumber(pos) {
+  if (pos == null) return null;
+  const str = String(pos).toUpperCase().trim();
+  if (str.includes("1") || str.includes("CARRY") || str.includes("SAFE")) return 1;
+  if (str.includes("2") || str.includes("MID")) return 2;
+  if (str.includes("3") || str.includes("OFF")) return 3;
+  if (str.includes("4") || str.includes("SOFT") || str.includes("SUPPORT_4")) return 4;
+  if (str.includes("5") || str.includes("HARD") || str.includes("SUPPORT_5")) return 5;
+  return Number(str) || null;
+}
+
 /* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
 let heroBuildRequestId = 0;
 
@@ -1384,7 +1396,7 @@ async function loadHeroBuild(heroId) {
   panel.innerHTML = `<div class="empty-state">Carregando dados recentes de ${heroName(heroId)}...</div>`;
 
   try {
-    // Busca estatísticas de roles e compras de itens por posição no STRATZ
+    // Consulta GraphQL completa do herói no STRATZ
     const data = await stratzQuery(
       `query($heroId: Short!) {
         heroStats {
@@ -1437,13 +1449,16 @@ async function loadHeroBuild(heroId) {
     const totalGlobalGames = rawStats.reduce((acc, curr) => acc + curr.matchCount, 0);
     const SAMPLE_SIZE = 100;
 
+    // Normaliza as roles na amostragem de 100 partidas
     const normalizedStats = rawStats
       .map((s) => {
+        const posNum = parsePositionNumber(s.position) || 1;
         const share = s.matchCount / totalGlobalGames;
         const sampleGames = Math.max(1, Math.round(share * SAMPLE_SIZE));
         const winrate = s.matchCount ? Math.round((s.winCount / s.matchCount) * 100) : 0;
         return {
-          position: s.position,
+          positionEnum: s.position,
+          positionNum: posNum,
           matchCount: sampleGames,
           winRatePct: winrate,
           rawCount: s.matchCount,
@@ -1451,7 +1466,8 @@ async function loadHeroBuild(heroId) {
       })
       .sort((a, b) => b.matchCount - a.matchCount);
 
-    renderHeroDetail(heroId, normalizedStats, hs, normalizedStats[0].position);
+    // Inicia pela role com maior número de partidas
+    renderHeroDetail(heroId, normalizedStats, hs, normalizedStats[0].positionNum);
   } catch (err) {
     if (myId !== heroBuildRequestId) return;
     panel.innerHTML = `
@@ -1463,27 +1479,28 @@ async function loadHeroBuild(heroId) {
   }
 }
 
-function renderHeroDetail(heroId, stats, hs, selectedPosition) {
+function renderHeroDetail(heroId, stats, hs, selectedPosNum) {
   const panel = $("#hero-detail");
 
+  // Abas de posições (Roles)
   const tabsHtml = stats.map((s) => {
-    const label = (POSITION_LABELS[s.position] || s.position).replace(/ \(.+\)/, "");
-    const isActive = s.position === selectedPosition ? "active" : "";
+    const label = NUMERIC_POSITION_LABELS[s.positionNum] || `Posição ${s.positionNum}`;
+    const isActive = s.positionNum === selectedPosNum ? "active" : "";
     return `
-      <button class="position-tab-btn ${isActive}" data-pos="${s.position}">
+      <button class="position-tab-btn ${isActive}" data-pos="${s.positionNum}">
         ${label}
         <span class="ptb-sub">${s.winRatePct}% vitórias · ${s.matchCount} jogos</span>
       </button>`;
   }).join("");
 
-  // Processa itens com fallback caso a role secundária não tenha dados próprios
-  const getItemListForPosition = (items, targetPosition) => {
+  // Filtra itens com matching normalizado por posição numérica (1 a 5)
+  const getItemListForPosition = (items, targetPosNum) => {
     if (!items || !items.length) return [];
-    
-    // 1. Tenta pegar os itens registrados exatamente naquela posição
-    let filtered = items.filter((i) => i.position === targetPosition);
-    
-    // 2. Se a posição clicada não tiver itens específicos (ex: Anti-Mage Pos 4), usa os itens gerais/principais
+
+    // 1. Procura itens correspondentes à posição selecionada (1, 2, 3, 4 ou 5)
+    let filtered = items.filter((i) => parsePositionNumber(i.position) === targetPosNum);
+
+    // 2. Se a role não tiver itens suficientes, usa a lista geral do herói
     if (!filtered.length) {
       filtered = items;
     }
@@ -1507,7 +1524,7 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   };
 
   const itemSection = (title, items, opts) => {
-    let list = getItemListForPosition(items, selectedPosition);
+    let list = getItemListForPosition(items, selectedPosNum);
     if (!list.length) return "";
 
     list.sort((a, b) => b.matchCount - a.matchCount);
@@ -1549,9 +1566,10 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
     </div>
   `;
 
+  // Evento de clique para alternar as roles (Pos 1 a 5)
   panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
-      renderHeroDetail(heroId, stats, hs, btn.dataset.pos);
+      renderHeroDetail(heroId, stats, hs, Number(btn.dataset.pos));
     });
   });
 }
