@@ -47,7 +47,7 @@ async function stratzQuery(query, variables) {
   return json.data;
 }
 
-// nomes amigáveis pras posições — usados no ranking, no explorador de heróis, etc.
+// nomes amigáveis pras posições
 const POSITION_LABELS = {
   POSITION_1: "Posição 1 (Carry)",
   POSITION_2: "Posição 2 (Mid)",
@@ -798,30 +798,31 @@ function leagueIdByName(name) {
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-/* ---------- Estatísticas de jogadores por Torneio (STRATZ GraphQL) ---------- */
+/* ---------- Estatísticas de jogadores por Torneio (STRATZ GraphQL Matches) ---------- */
 let leagueStatsCache = {};
 
 async function fetchLeaguePlayerStats(leagueId) {
-  if (!leagueId) return [];
+  if (!leagueId) return {};
   if (leagueStatsCache[leagueId]) return leagueStatsCache[leagueId];
 
   try {
+    // Busca até 100 partidas da liga com todos os jogadores de cada partida
     const data = await stratzQuery(
       `query($id: Int!) {
         league(id: $id) {
-          players {
-            steamAccountId
-            matchCount
-            winCount
-            kills
-            deaths
-            assists
-            goldPerMinute
-            experiencePerMinute
-            steamAccount {
-              name
-              proSteamAccount {
+          matches(request: { take: 100 }) {
+            players {
+              steamAccountId
+              kills
+              deaths
+              assists
+              goldPerMinute
+              experiencePerMinute
+              steamAccount {
                 name
+                proSteamAccount {
+                  name
+                }
               }
             }
           }
@@ -830,12 +831,43 @@ async function fetchLeaguePlayerStats(leagueId) {
       { id: Number(leagueId) }
     );
 
-    const players = (data && data.league && data.league.players) || [];
-    leagueStatsCache[leagueId] = players;
-    return players;
+    const matches = (data && data.league && data.league.matches) || [];
+    const playerAgg = {};
+
+    matches.forEach((m) => {
+      (m.players || []).forEach((pl) => {
+        const id = pl.steamAccountId;
+        if (!id) return;
+
+        if (!playerAgg[id]) {
+          playerAgg[id] = {
+            steamAccountId: id,
+            proName: pl.steamAccount?.proSteamAccount?.name || null,
+            steamName: pl.steamAccount?.name || null,
+            matchCount: 0,
+            kills: 0,
+            deaths: 0,
+            assists: 0,
+            gpm: 0,
+            xpm: 0,
+          };
+        }
+
+        const p = playerAgg[id];
+        p.matchCount++;
+        p.kills += pl.kills || 0;
+        p.deaths += pl.deaths || 0;
+        p.assists += pl.assists || 0;
+        p.gpm += pl.goldPerMinute || 0;
+        p.xpm += pl.experiencePerMinute || 0;
+      });
+    });
+
+    leagueStatsCache[leagueId] = playerAgg;
+    return playerAgg;
   } catch (err) {
     console.error("Erro ao buscar stats da liga no STRATZ:", err);
-    return [];
+    return {};
   }
 }
 
@@ -843,35 +875,33 @@ async function computeRosterStats(roster, teamName, leagueId) {
   if (!leagueId || !roster.length) return;
 
   try {
-    const allPlayers = await fetchLeaguePlayerStats(leagueId);
-    if (!allPlayers.length) return;
+    const playerAgg = await fetchLeaguePlayerStats(leagueId);
+    const allAggList = Object.values(playerAgg);
+    if (!allAggList.length) return;
 
     roster.forEach((p) => {
       // 1. Busca por Steam Account ID (precisão total)
-      let target = allPlayers.find(
-        (sp) => p.account_id && Number(sp.steamAccountId) === Number(p.account_id)
-      );
+      let target = p.account_id ? playerAgg[p.account_id] : null;
 
       // 2. Busca flexível por Pro Name ou Nickname na Steam
       if (!target) {
         const pNick = normalizeNick(p.nickname);
-        target = allPlayers.find((sp) => {
-          const proName = normalizeNick(sp.steamAccount?.proSteamAccount?.name);
-          const steamName = normalizeNick(sp.steamAccount?.name);
-          return (proName && (proName.includes(pNick) || pNick.includes(proName))) ||
-                 (steamName && (steamName.includes(pNick) || pNick.includes(steamName)));
+        target = allAggList.find((sp) => {
+          const pro = normalizeNick(sp.proName);
+          const steam = normalizeNick(sp.steamName);
+          return (pro && (pro.includes(pNick) || pNick.includes(pro))) ||
+                 (steam && (steam.includes(pNick) || pNick.includes(steam)));
         });
       }
 
       if (target && target.matchCount > 0) {
-        const games = target.matchCount;
         p._stats = {
-          games: games,
-          kills: (target.kills || 0) * games,
-          deaths: (target.deaths || 0) * games,
-          assists: (target.assists || 0) * games,
-          gpm: (target.goldPerMinute || 0) * games,
-          xpm: (target.experiencePerMinute || 0) * games,
+          games: target.matchCount,
+          kills: target.kills,
+          deaths: target.deaths,
+          assists: target.assists,
+          gpm: target.gpm,
+          xpm: target.xpm,
         };
       }
     });
