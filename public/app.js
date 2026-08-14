@@ -840,100 +840,83 @@ function leagueIdByName(name) {
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-// busca até `cap` partidas completas do time no torneio e casa cada jogador da escalação pelo
-// account_id (se já soubermos) ou pelo "personaname" (nick usado na Steam naquela partida).
-// junta várias partidas em vez de uma só — mais chance de achar cada jogador com o nick certo,
-// e o detalhe completo da partida (diferente do endpoint resumido) já traz GPM/XPM certos.
-async function computeRosterStats(roster, teamName, leagueId, cap = 15) {
-  if (!leagueId || !roster.length) return;
+// Cache para guardar os dados agregados da liga e evitar re-consultas na mesma sessão
+let leaguePlayersCache = {};
+
+async function getLeaguePlayersStats(leagueId) {
+  if (!leagueId) return [];
+  if (leaguePlayersCache[leagueId]) return leaguePlayersCache[leagueId];
+
   try {
-    let matches = await odFetch(`leagues/${leagueId}/matches`);
-    matches = await enrichTeamNames(matches);
-
-    // Filtra as partidas disputadas pelo time
-    const teamMatches = matches
-      .filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName))
-      .slice(0, cap);
-
-    if (!teamMatches.length) return;
-
-    // Inicializa a estrutura de estatísticas
-    roster.forEach((p) => {
-      p._stats = { games: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, xpm: 0 };
-    });
-
-    // Busca as partidas em pequenos lotes para não estourar o limite de requisições da OpenDota
-    const fullMatches = [];
-    for (let i = 0; i < teamMatches.length; i += 5) {
-      const chunk = teamMatches.slice(i, i + 5);
-      const results = await Promise.all(
-        chunk.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null))
-      );
-      fullMatches.push(...results.filter(Boolean));
-    }
-
-    fullMatches.forEach((match) => {
-      const isRadiant = teamNameMatches(match.radiant_name, teamName);
-      
-      // Pega somente os 5 jogadores do lado correspondente do time
-      const teamPlayers = (match.players || []).filter((p) =>
-        isRadiant ? p.player_slot < 128 : p.player_slot >= 128
-      );
-
-      teamPlayers.forEach((pl) => {
-        // 1. Tenta por ID
-        let target = roster.find(
-          (p) => p.account_id && Number(p.account_id) === Number(pl.account_id)
-        );
-
-        // 2. Tenta pelo nome de jogador profissional registrado na Valve (pl.name)
-        if (!target && pl.name) {
-          target = roster.find((p) => normalizeNick(p.nickname) === normalizeNick(pl.name));
-        }
-
-        // 3. Tenta pelo nickname da Steam (personaname)
-        if (!target && pl.personaname) {
-          const steamNick = normalizeNick(pl.personaname);
-          target = roster.find((p) => {
-            const nick = normalizeNick(p.nickname);
-            return nick && (steamNick.includes(nick) || nick.includes(steamNick));
-          });
-        }
-
-        // Se encontrou o jogador correspondente, acumula as estatísticas
-        if (target) {
-          // Atualiza o ID caso ainda não estivesse fixado
-          if (!target.account_id && pl.account_id) {
-            target.account_id = pl.account_id;
-          }
-
-          const s = target._stats;
-          s.games += 1;
-          s.kills += pl.kills || 0;
-          s.deaths += pl.deaths || 0;
-          s.assists += pl.assists || 0;
-          s.gpm += pl.gold_per_min || 0;
-          s.xpm += pl.xp_per_min || 0;
-        }
-      });
-    });
-  } catch (err) {
-    console.error("Erro ao calcular médias do time:", err);
+    // Endpoint oficial agregado da OpenDota para jogadores da liga
+    const players = await odFetch(`leagues/${leagueId}/players`);
+    leaguePlayersCache[leagueId] = players || [];
+    return leaguePlayersCache[leagueId];
+  } catch (e) {
+    console.error("Erro ao buscar jogadores da liga:", e);
+    return [];
   }
 }
-function accountIdCacheKey(nickname, team) { return `${normalizeTeamName(team)}::${normalizeNick(nickname)}`; }
+
+async function computeRosterStats(roster, teamName, leagueId) {
+  if (!leagueId || !roster.length) return;
+
+  try {
+    const allLeaguePlayers = await getLeaguePlayersStats(leagueId);
+    if (!allLeaguePlayers.length) return;
+
+    roster.forEach((p) => {
+      // 1. Tenta encontrar pelo account_id
+      let stats = allLeaguePlayers.find(
+        (lp) => p.account_id && Number(lp.account_id) === Number(p.account_id)
+      );
+
+      // 2. Se não achar pelo ID, tenta pelo nome registrado na Valve ou nick
+      if (!stats) {
+        stats = allLeaguePlayers.find((lp) => {
+          const lpName = normalizeNick(lp.name);
+          const pNick = normalizeNick(p.nickname);
+          return lpName && pNick && (lpName.includes(pNick) || pNick.includes(lpName));
+        });
+      }
+
+      if (stats && stats.games_played > 0) {
+        // Vincula o ID caso ainda não estivesse fixado
+        if (!p.account_id && stats.account_id) {
+          p.account_id = stats.account_id;
+        }
+
+        const games = stats.games_played;
+        p._stats = {
+          games: games,
+          kills: stats.kills,
+          deaths: stats.deaths,
+          assists: stats.assists,
+          gpm: stats.gpm ? stats.gpm * games : 0,
+          xpm: stats.xpm ? stats.xpm * games : 0,
+        };
+      }
+    });
+  } catch (err) {
+    console.error("Erro em computeRosterStats:", err);
+  }
+}
 
 async function openAgendaMatch(item) {
   $("#match-modal").classList.remove("hidden");
   stopLiveMinimap();
   $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação...</div>`;
+  
   const playersData = await ensurePlayersData();
   const rosterA = rosterForTeam(playersData, item.timeA);
   const rosterB = rosterForTeam(playersData, item.timeB);
-  const when = new Date(item.data).toLocaleString("pt-BR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const when = new Date(item.data).toLocaleString("pt-BR", { 
+    day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" 
+  });
 
   await ensureLeaguesLoaded().catch(() => {});
   const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
+  
   if (leagueId) {
     await Promise.all([
       computeRosterStats(rosterA, item.timeA, leagueId),
@@ -941,14 +924,16 @@ async function openAgendaMatch(item) {
     ]);
   }
 
-  const fmt = (n) => (n == null ? "-" : n.toFixed(1));
+  const fmt = (n) => (n == null || isNaN(n) ? "-" : Number(n).toFixed(1));
   const rosterRows = (roster) => {
     if (!roster.length) return `<div class="empty-state">Escalação não cadastrada ainda.</div>`;
     return `<table class="player-table">
       <thead><tr><th>Posição</th><th>Jogador</th><th>K</th><th>D</th><th>A</th><th>KDA</th><th>GPM</th><th>XPM</th></tr></thead>
       <tbody>${roster.map((p) => {
         const s = p._stats && p._stats.games ? p._stats : null;
-        const k = s ? s.kills / s.games : null, d = s ? s.deaths / s.games : null, a = s ? s.assists / s.games : null;
+        const k = s ? s.kills / s.games : null;
+        const d = s ? s.deaths / s.games : null;
+        const a = s ? s.assists / s.games : null;
         const kda = s ? (d > 0 ? (k + a) / d : k + a) : null;
         return `<tr>
           <td>${NUMERIC_POSITION_LABELS[p.position] || p.position || "—"}</td>
@@ -969,7 +954,7 @@ async function openAgendaMatch(item) {
       <div>${item.timeA || "A definir"} <span class="score" style="font-size:20px">${item.formato || "vs"}</span> ${item.timeB || "A definir"}</div>
       <div class="match-meta" style="justify-content:center;gap:16px"><span>${when}</span>${item.fase ? `<span>${item.fase}</span>` : ""}</div>
     </div>
-    ${!leagueId ? `<div class="section-sub" style="text-align:center;margin-bottom:12px">Médias do torneio indisponíveis — não achei "${item.torneio}" na lista de torneios da OpenDota.</div>` : ""}
+    ${!leagueId ? `<div class="section-sub" style="text-align:center;margin-bottom:12px">Médias indisponíveis — torneio "${item.torneio}" não encontrado na OpenDota.</div>` : ""}
     <div class="team-block-title">${item.timeA || "Time A"}</div>
     ${rosterRows(rosterA)}
     <div class="team-block-title">${item.timeB || "Time B"}</div>
