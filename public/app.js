@@ -1375,6 +1375,7 @@ $("#hero-search").addEventListener("input", (e) => {
 });
 
 /* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
+/* ---------- Heróis: Roles, Winrate e Build com Amostragem de 100 Jogos ---------- */
 let heroBuildRequestId = 0;
 
 async function loadHeroBuild(heroId) {
@@ -1383,7 +1384,7 @@ async function loadHeroBuild(heroId) {
   panel.innerHTML = `<div class="empty-state">Carregando dados recentes de ${heroName(heroId)}...</div>`;
 
   try {
-    // Busca os dados consolidados do herói no STRATZ
+    // Busca estatísticas de roles e compras de itens por posição no STRATZ
     const data = await stratzQuery(
       `query($heroId: Short!) {
         heroStats {
@@ -1433,11 +1434,9 @@ async function loadHeroBuild(heroId) {
       return;
     }
 
-    // Calcula o total geral de jogos somados para normalizar a amostragem em 100 partidas
     const totalGlobalGames = rawStats.reduce((acc, curr) => acc + curr.matchCount, 0);
-
-    // Amostragem proporcional nas últimas 100 partidas
     const SAMPLE_SIZE = 100;
+
     const normalizedStats = rawStats
       .map((s) => {
         const share = s.matchCount / totalGlobalGames;
@@ -1452,7 +1451,6 @@ async function loadHeroBuild(heroId) {
       })
       .sort((a, b) => b.matchCount - a.matchCount);
 
-    // Renderiza o detalhe selecionando a posição mais jogada por padrão
     renderHeroDetail(heroId, normalizedStats, hs, normalizedStats[0].position);
   } catch (err) {
     if (myId !== heroBuildRequestId) return;
@@ -1468,7 +1466,6 @@ async function loadHeroBuild(heroId) {
 function renderHeroDetail(heroId, stats, hs, selectedPosition) {
   const panel = $("#hero-detail");
 
-  // Botões de Posição (Role) com Winrate e total de jogos na amostragem
   const tabsHtml = stats.map((s) => {
     const label = (POSITION_LABELS[s.position] || s.position).replace(/ \(.+\)/, "");
     const isActive = s.position === selectedPosition ? "active" : "";
@@ -1479,12 +1476,18 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
       </button>`;
   }).join("");
 
-  // Construtor de blocos de itens filtrados pela posição selecionada
-  const itemSection = (title, items, opts) => {
-    const filtered = (items || []).filter((i) => i.position === selectedPosition);
-    if (!filtered.length) return "";
+  // Processa itens com fallback caso a role secundária não tenha dados próprios
+  const getItemListForPosition = (items, targetPosition) => {
+    if (!items || !items.length) return [];
+    
+    // 1. Tenta pegar os itens registrados exatamente naquela posição
+    let filtered = items.filter((i) => i.position === targetPosition);
+    
+    // 2. Se a posição clicada não tiver itens específicos (ex: Anti-Mage Pos 4), usa os itens gerais/principais
+    if (!filtered.length) {
+      filtered = items;
+    }
 
-    // Agrupa compras repetidas do mesmo item
     const byItem = {};
     filtered.forEach((i) => {
       const acc = byItem[i.itemId] || (byItem[i.itemId] = { itemId: i.itemId, matchCount: 0, winCount: 0, timeSum: 0, timeN: 0 });
@@ -1496,22 +1499,23 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
       }
     });
 
-    let list = Object.values(byItem).map((i) => ({
+    return Object.values(byItem).map((i) => ({
       ...i,
       time: i.timeN ? i.timeSum / i.timeN : null,
       winRate: i.matchCount ? Math.round((i.winCount / i.matchCount) * 100) : 0,
     }));
+  };
 
-    // Ordena por popularidade
+  const itemSection = (title, items, opts) => {
+    let list = getItemListForPosition(items, selectedPosition);
+    if (!list.length) return "";
+
     list.sort((a, b) => b.matchCount - a.matchCount);
     let top = list.slice(0, opts.take);
 
-    // Se for a build principal, ordena pelo tempo médio de compra na partida
     if (opts.sortByTime) {
       top = top.sort((a, b) => (a.time || 0) - (b.time || 0));
     }
-
-    if (!top.length) return "";
 
     const chips = top.map((i) => `
       <div class="item-chip" title="${ITEMS_BY_ID[i.itemId]?.dname || 'Item'} — ${i.winRate}% vitórias">
@@ -1545,7 +1549,6 @@ function renderHeroDetail(heroId, stats, hs, selectedPosition) {
     </div>
   `;
 
-  // Evento de clique para alternar entre as posições do herói
   panel.querySelectorAll(".position-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       renderHeroDetail(heroId, stats, hs, btn.dataset.pos);
