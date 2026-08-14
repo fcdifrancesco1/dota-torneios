@@ -13,7 +13,9 @@ function lsGet(key, fallback) {
   try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
   catch { return fallback; }
 }
-function lsSet(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+function lsSet(key, value) { 
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch(e) {}
+}
 
 async function odFetch(path) {
   const res = await fetch(`/api/opendota?path=${encodeURIComponent(path)}`);
@@ -326,7 +328,7 @@ function switchTab(tab) {
 }
 $$(".tab-btn").forEach((btn) => btn.addEventListener("click", () => switchTab(btn.dataset.tab)));
 
-function startLivePolling() { stopLivePolling(); liveTimer = setInterval(loadLive, 30000); }
+function startLivePolling() { stopLivePolling(); liveTimer = setInterval(loadLive, 35000); }
 function stopLivePolling() { if (liveTimer) clearInterval(liveTimer); liveTimer = null; }
 
 let resultsPollTimer = null;
@@ -435,7 +437,7 @@ function startLiveMinimap(g, streamsData) {
       const leagueName = leagueNameById(match.league_id || leagueId);
       $("#match-detail").innerHTML = renderLiveMatchDetail(match, getStreamLinksForLeague(streamsData, leagueName));
       renderMinimapDots(sb);
-    } catch { /* mantém último estado */ }
+    } catch { /* mantém o último estado */ }
   };
   renderMinimapDots(g.scoreboard);
   liveMinimapTimer = setInterval(refresh, 6000);
@@ -712,7 +714,7 @@ async function loadStandingsFor(leagueId, leagueName, isDefault) {
 
 /* ---------- visão geral ---------- */
 let overviewLiveTimer = null;
-function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTimer = setInterval(refreshOverviewLive, 20000); }
+function startOverviewLivePolling() { stopOverviewLivePolling(); overviewLiveTimer = setInterval(refreshOverviewLive, 25000); }
 function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overviewLiveTimer); overviewLiveTimer = null; }
 
 let overviewResultsTimer = null;
@@ -784,8 +786,7 @@ function leagueIdByName(name) {
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-/* ---------- Estatísticas e Escalação 100% Automáticas por Torneio ---------- */
-/* ---------- Estatísticas e Escalação 100% Diretas por Torneio ---------- */
+/* ---------- Estatísticas de 100% das Partidas com Cache Persistente ---------- */
 let leagueMatchesCache = {};
 
 async function getMatchesForLeague(leagueId) {
@@ -802,23 +803,66 @@ async function getMatchesForLeague(leagueId) {
   }
 }
 
-async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
+// Busca a partida com cache em disco permanente: só faz download 1 única vez
+async function getMatchCached(matchId) {
+  if (!matchId) return null;
+  const cacheKey = `dota:match:compact:${matchId}`;
+  
+  const cached = lsGet(cacheKey, null);
+  if (cached) return cached;
+
+  try {
+    const data = await odFetch(`matches/${matchId}`);
+    if (data && data.match_id) {
+      const compactMatch = {
+        match_id: data.match_id,
+        radiant_name: data.radiant_name,
+        dire_name: data.dire_name,
+        players: (data.players || []).map((p) => ({
+          account_id: p.account_id,
+          personaname: p.personaname,
+          name: p.name,
+          player_slot: p.player_slot,
+          kills: p.kills || 0,
+          deaths: p.deaths || 0,
+          assists: p.assists || 0,
+          gold_per_min: p.gold_per_min || 0,
+          xp_per_min: p.xp_per_min || 0,
+          lane_role: p.lane_role || 0,
+        })),
+      };
+      lsSet(cacheKey, compactMatch);
+      return compactMatch;
+    }
+  } catch (err) {
+    return null;
+  }
+  return null;
+}
+
+async function getTeamRosterAndStats(teamName, leagueId) {
   if (!teamName || !leagueId) return [];
   try {
     const allMatches = await getMatchesForLeague(leagueId);
-    const teamMatches = allMatches
-      .filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName))
-      .slice(0, cap);
+    
+    // Filtra TODAS as partidas que o time disputou na liga inteira (sem limite)
+    const teamMatches = allMatches.filter(
+      (m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName)
+    );
 
     if (!teamMatches.length) return [];
 
-    const fullMatches = await Promise.all(
-      teamMatches.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null))
-    );
+    // Baixa em lotes de 6 para evitar sobrecarregar a Netlify
+    const fullMatches = [];
+    for (let i = 0; i < teamMatches.length; i += 6) {
+      const chunk = teamMatches.slice(i, i + 6);
+      const results = await Promise.all(chunk.map((m) => getMatchCached(m.match_id)));
+      fullMatches.push(...results.filter(Boolean));
+    }
 
     const playersMap = {};
 
-    fullMatches.filter(Boolean).forEach((match) => {
+    fullMatches.forEach((match) => {
       const isRadiant = teamNameMatches(match.radiant_name, teamName);
       const sidePlayers = (match.players || []).filter((p) =>
         isRadiant ? p.player_slot < 128 : p.player_slot >= 128
@@ -844,13 +888,12 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
 
         const p = playersMap[id];
         p.games += 1;
-        p.kills += pl.kills || 0;
-        p.deaths += pl.deaths || 0;
-        p.assists += pl.assists || 0;
-        p.gpm += pl.gold_per_min || 0;
-        p.xpm += pl.xp_per_min || 0;
+        p.kills += pl.kills;
+        p.deaths += pl.deaths;
+        p.assists += pl.assists;
+        p.gpm += pl.gold_per_min;
+        p.xpm += pl.xp_per_min;
 
-        // Identificação de rota pela API (lane_role: 1 = safe, 2 = mid, 3 = offlane)
         if (pl.lane_role === 2) p.midCount += 1;
         else if (pl.lane_role === 1) p.safeCount += 1;
         else if (pl.lane_role === 3) p.offCount += 1;
@@ -860,18 +903,17 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
     const teamList = Object.values(playersMap);
     if (!teamList.length) return [];
 
-    // 1. Identifica a Posição 2 (Midlaner) pela maior frequência na rota do meio
+    // 1. Identifica a Posição 2 (Midlaner)
     let midPlayer = teamList.reduce((prev, curr) => (curr.midCount > prev.midCount ? curr : prev), teamList[0]);
     if (midPlayer && midPlayer.midCount > 0) {
       midPlayer.position = 2;
     } else {
-      // Fallback: se a API não registrou lane_role, pega o 2º maior GPM
       const sortedByGpm = [...teamList].sort((a, b) => (b.gpm / b.games) - (a.gpm / a.games));
       midPlayer = sortedByGpm[1] || sortedByGpm[0];
       if (midPlayer) midPlayer.position = 2;
     }
 
-    // 2. Separa os demais jogadores entre Cores e Suportes por média de GPM
+    // 2. Separa os demais jogadores entre Cores e Suportes por GPM médio
     const remaining = teamList.filter((p) => p !== midPlayer);
     remaining.sort((a, b) => (b.gpm / (b.games || 1)) - (a.gpm / (a.games || 1)));
 
@@ -894,7 +936,6 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
       sup1.position = 4;
       sup2.position = 5;
     } else {
-      // Fallback sequencial caso o time tenha menos de 5 registros
       remaining.forEach((p, i) => {
         p.position = i === 0 ? 1 : i === 1 ? 3 : i === 2 ? 4 : 5;
       });
@@ -902,7 +943,7 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
 
     return teamList.sort((a, b) => (a.position || 0) - (b.position || 0));
   } catch (err) {
-    console.error("Erro ao ordenar posições da equipe:", err);
+    console.error("Erro ao calcular médias do time:", err);
     return [];
   }
 }
@@ -910,7 +951,7 @@ async function getTeamRosterAndStats(teamName, leagueId, cap = 12) {
 async function openAgendaMatch(item) {
   $("#match-modal").classList.remove("hidden");
   stopLiveMinimap();
-  $("#match-detail").innerHTML = `<div class="empty-state">Carregando escalação e estatísticas...</div>`;
+  $("#match-detail").innerHTML = `<div class="empty-state">Carregando todas as partidas do torneio...</div>`;
 
   await ensureLeaguesLoaded().catch(() => {});
   const leagueId = item.torneio ? leagueIdByName(item.torneio) : null;
@@ -931,7 +972,7 @@ async function openAgendaMatch(item) {
   const rosterRows = (roster) => {
     if (!roster.length) return `<div class="empty-state">Nenhuma partida finalizada encontrada para este time no torneio ainda.</div>`;
     return `<table class="player-table">
-      <thead><tr><th>Posição</th><th>Jogador</th><th>K</th><th>D</th><th>A</th><th>KDA</th><th>GPM</th><th>XPM</th></tr></thead>
+      <thead><tr><th>Posição</th><th>Jogador</th><th>Jogos</th><th>K</th><th>D</th><th>A</th><th>KDA</th><th>GPM</th><th>XPM</th></tr></thead>
       <tbody>${roster.map((p) => {
         const k = p.games ? p.kills / p.games : null;
         const d = p.games ? p.deaths / p.games : null;
@@ -940,6 +981,7 @@ async function openAgendaMatch(item) {
         return `<tr>
           <td>${NUMERIC_POSITION_LABELS[p.position] || `Posição ${p.position}` || "—"}</td>
           <td>${p.nickname}</td>
+          <td class="numeric">${p.games}</td>
           <td class="numeric">${fmt(k)}</td>
           <td class="numeric">${fmt(d)}</td>
           <td class="numeric">${fmt(a)}</td>
