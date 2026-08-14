@@ -844,38 +844,82 @@ function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0
 // account_id (se já soubermos) ou pelo "personaname" (nick usado na Steam naquela partida).
 // junta várias partidas em vez de uma só — mais chance de achar cada jogador com o nick certo,
 // e o detalhe completo da partida (diferente do endpoint resumido) já traz GPM/XPM certos.
-async function computeRosterStats(roster, teamName, leagueId, cap = 30) {
-  if (!leagueId) return;
+async function computeRosterStats(roster, teamName, leagueId, cap = 15) {
+  if (!leagueId || !roster.length) return;
   try {
     let matches = await odFetch(`leagues/${leagueId}/matches`);
     matches = await enrichTeamNames(matches);
-    const teamMatches = matches.filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName)).slice(0, cap);
-    if (!teamMatches.length) return;
-    const fulls = await Promise.all(teamMatches.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null)));
 
-    const idCache = lsGet("dota:discoveredAccountIds", {});
+    // Filtra as partidas disputadas pelo time
+    const teamMatches = matches
+      .filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName))
+      .slice(0, cap);
+
+    if (!teamMatches.length) return;
+
+    // Inicializa a estrutura de estatísticas
     roster.forEach((p) => {
-      if (!p.account_id) { const cached = idCache[accountIdCacheKey(p.nickname, teamName)]; if (cached) p.account_id = cached; }
       p._stats = { games: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, xpm: 0 };
     });
 
-    let idCacheChanged = false;
-    fulls.filter(Boolean).forEach((full) => {
-      (full.players || []).forEach((pl) => {
-        const target = roster.find((p) => (p.account_id && p.account_id === pl.account_id) || normalizeNick(p.nickname) === normalizeNick(pl.personaname));
-        if (!target) return;
-        if (!target.account_id && pl.account_id) {
-          target.account_id = pl.account_id;
-          idCache[accountIdCacheKey(target.nickname, teamName)] = pl.account_id;
-          idCacheChanged = true;
+    // Busca as partidas em pequenos lotes para não estourar o limite de requisições da OpenDota
+    const fullMatches = [];
+    for (let i = 0; i < teamMatches.length; i += 5) {
+      const chunk = teamMatches.slice(i, i + 5);
+      const results = await Promise.all(
+        chunk.map((m) => odFetch(`matches/${m.match_id}`).catch(() => null))
+      );
+      fullMatches.push(...results.filter(Boolean));
+    }
+
+    fullMatches.forEach((match) => {
+      const isRadiant = teamNameMatches(match.radiant_name, teamName);
+      
+      // Pega somente os 5 jogadores do lado correspondente do time
+      const teamPlayers = (match.players || []).filter((p) =>
+        isRadiant ? p.player_slot < 128 : p.player_slot >= 128
+      );
+
+      teamPlayers.forEach((pl) => {
+        // 1. Tenta por ID
+        let target = roster.find(
+          (p) => p.account_id && Number(p.account_id) === Number(pl.account_id)
+        );
+
+        // 2. Tenta pelo nome de jogador profissional registrado na Valve (pl.name)
+        if (!target && pl.name) {
+          target = roster.find((p) => normalizeNick(p.nickname) === normalizeNick(pl.name));
         }
-        const s = target._stats;
-        s.games++; s.kills += pl.kills || 0; s.deaths += pl.deaths || 0; s.assists += pl.assists || 0;
-        s.gpm += pl.gold_per_min || 0; s.xpm += pl.xp_per_min || 0;
+
+        // 3. Tenta pelo nickname da Steam (personaname)
+        if (!target && pl.personaname) {
+          const steamNick = normalizeNick(pl.personaname);
+          target = roster.find((p) => {
+            const nick = normalizeNick(p.nickname);
+            return nick && (steamNick.includes(nick) || nick.includes(steamNick));
+          });
+        }
+
+        // Se encontrou o jogador correspondente, acumula as estatísticas
+        if (target) {
+          // Atualiza o ID caso ainda não estivesse fixado
+          if (!target.account_id && pl.account_id) {
+            target.account_id = pl.account_id;
+          }
+
+          const s = target._stats;
+          s.games += 1;
+          s.kills += pl.kills || 0;
+          s.deaths += pl.deaths || 0;
+          s.assists += pl.assists || 0;
+          s.gpm += pl.gold_per_min || 0;
+          s.xpm += pl.xp_per_min || 0;
+        }
       });
     });
-    if (idCacheChanged) lsSet("dota:discoveredAccountIds", idCache);
-  } catch { /* segue sem estatísticas — a tabela mostra "-" pra quem não achou */ }
+  } catch (err) {
+    console.error("Erro ao calcular médias do time:", err);
+  }
 }
 function accountIdCacheKey(nickname, team) { return `${normalizeTeamName(team)}::${normalizeNick(nickname)}`; }
 
