@@ -435,7 +435,7 @@ function startLiveMinimap(g, streamsData) {
       const leagueName = leagueNameById(match.league_id || leagueId);
       $("#match-detail").innerHTML = renderLiveMatchDetail(match, getStreamLinksForLeague(streamsData, leagueName));
       renderMinimapDots(sb);
-    } catch { /* mantém o último estado */ }
+    } catch { /* mantém último estado */ }
   };
   renderMinimapDots(g.scoreboard);
   liveMinimapTimer = setInterval(refresh, 6000);
@@ -798,112 +798,78 @@ function leagueIdByName(name) {
 }
 function normalizeNick(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
 
-/* ---------- Estatísticas de jogadores por Torneio (STRATZ GraphQL Matches) ---------- */
-let leagueStatsCache = {};
-
-async function fetchLeaguePlayerStats(leagueId) {
-  if (!leagueId) return {};
-  if (leagueStatsCache[leagueId]) return leagueStatsCache[leagueId];
-
-  try {
-    // Busca até 100 partidas da liga com todos os jogadores de cada partida
-    const data = await stratzQuery(
-      `query($id: Int!) {
-        league(id: $id) {
-          matches(request: { take: 100 }) {
-            players {
-              steamAccountId
-              kills
-              deaths
-              assists
-              goldPerMinute
-              experiencePerMinute
-              steamAccount {
-                name
-                proSteamAccount {
-                  name
-                }
-              }
-            }
-          }
-        }
-      }`,
-      { id: Number(leagueId) }
-    );
-
-    const matches = (data && data.league && data.league.matches) || [];
-    const playerAgg = {};
-
-    matches.forEach((m) => {
-      (m.players || []).forEach((pl) => {
-        const id = pl.steamAccountId;
-        if (!id) return;
-
-        if (!playerAgg[id]) {
-          playerAgg[id] = {
-            steamAccountId: id,
-            proName: pl.steamAccount?.proSteamAccount?.name || null,
-            steamName: pl.steamAccount?.name || null,
-            matchCount: 0,
-            kills: 0,
-            deaths: 0,
-            assists: 0,
-            gpm: 0,
-            xpm: 0,
-          };
-        }
-
-        const p = playerAgg[id];
-        p.matchCount++;
-        p.kills += pl.kills || 0;
-        p.deaths += pl.deaths || 0;
-        p.assists += pl.assists || 0;
-        p.gpm += pl.goldPerMinute || 0;
-        p.xpm += pl.experiencePerMinute || 0;
-      });
-    });
-
-    leagueStatsCache[leagueId] = playerAgg;
-    return playerAgg;
-  } catch (err) {
-    console.error("Erro ao buscar stats da liga no STRATZ:", err);
-    return {};
-  }
-}
+/* ---------- Estatísticas de jogadores por Torneio (OpenDota Otimizado) ---------- */
+let teamMatchesCache = {};
 
 async function computeRosterStats(roster, teamName, leagueId) {
   if (!leagueId || !roster.length) return;
 
   try {
-    const playerAgg = await fetchLeaguePlayerStats(leagueId);
-    const allAggList = Object.values(playerAgg);
-    if (!allAggList.length) return;
+    // 1. Pega a lista de partidas da liga (1 requisição)
+    let matches = await odFetch(`leagues/${leagueId}/matches`);
+    matches = await enrichTeamNames(matches);
 
+    // 2. Filtra até 8 partidas do time dentro do torneio
+    const teamMatches = matches
+      .filter((m) => teamNameMatches(m.radiant_name, teamName) || teamNameMatches(m.dire_name, teamName))
+      .slice(0, 8);
+
+    if (!teamMatches.length) return;
+
+    // Inicializa a estrutura de stats
     roster.forEach((p) => {
-      // 1. Busca por Steam Account ID (precisão total)
-      let target = p.account_id ? playerAgg[p.account_id] : null;
+      p._stats = { games: 0, kills: 0, deaths: 0, assists: 0, gpm: 0, xpm: 0 };
+    });
 
-      // 2. Busca flexível por Pro Name ou Nickname na Steam
-      if (!target) {
-        const pNick = normalizeNick(p.nickname);
-        target = allAggList.find((sp) => {
-          const pro = normalizeNick(sp.proName);
-          const steam = normalizeNick(sp.steamName);
-          return (pro && (pro.includes(pNick) || pNick.includes(pro))) ||
-                 (steam && (steam.includes(pNick) || pNick.includes(steam)));
-        });
-      }
+    // 3. Busca os detalhes das partidas com cache em memória
+    const fullMatches = await Promise.all(
+      teamMatches.map(async (m) => {
+        if (teamMatchesCache[m.match_id]) return teamMatchesCache[m.match_id];
+        try {
+          const full = await odFetch(`matches/${m.match_id}`);
+          teamMatchesCache[m.match_id] = full;
+          return full;
+        } catch {
+          return null;
+        }
+      })
+    );
 
-      if (target && target.matchCount > 0) {
-        p._stats = {
-          games: target.matchCount,
-          kills: target.kills,
-          deaths: target.deaths,
-          assists: target.assists,
-          gpm: target.gpm,
-          xpm: target.xpm,
-        };
-      }
+    // 4. Processa e consolida as médias dos jogadores
+    fullMatches.filter(Boolean).forEach((match) => {
+      const isRadiant = teamNameMatches(match.radiant_name, teamName);
+      const sidePlayers = (match.players || []).filter((p) =>
+        isRadiant ? p.player_slot < 128 : p.player_slot >= 128
+      );
+
+      sidePlayers.forEach((pl) => {
+        // Match por account_id
+        let target = roster.find(
+          (p) => p.account_id && Number(p.account_id) === Number(pl.account_id)
+        );
+
+        // Fallback por nickname da Steam
+        if (!target) {
+          const steamNick = normalizeNick(pl.personaname || pl.name);
+          target = roster.find((p) => {
+            const pNick = normalizeNick(p.nickname);
+            return pNick && steamNick && (steamNick.includes(pNick) || pNick.includes(steamNick));
+          });
+        }
+
+        if (target) {
+          if (!target.account_id && pl.account_id) {
+            target.account_id = pl.account_id;
+          }
+          const s = target._stats;
+          s.games += 1;
+          s.kills += pl.kills || 0;
+          s.deaths += pl.deaths || 0;
+          s.assists += pl.assists || 0;
+          s.gpm += pl.gold_per_min || 0;
+          s.xpm += pl.xp_per_min || 0;
+        }
+      });
     });
   } catch (err) {
     console.error("Erro ao calcular stats do roster:", err);
