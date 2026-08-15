@@ -465,11 +465,16 @@ function renderMinimapDots(sb) {
     rPlayers.map((p, i) => dot(p, "minimap-radiant", RADIANT_BASE, i)).join("") +
     dPlayers.map((p, i) => dot(p, "minimap-dire", DIRE_BASE, i)).join("");
 }
+function sumNetWorth(players) {
+  return (players || []).reduce((sum, p) => sum + (p.net_worth || 0), 0);
+}
 function renderLiveMatchDetail(g, streamLinks) {
   const sb = g.scoreboard || {};
   const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
   const dName = (g.dire_team && g.dire_team.team_name) || "Dire";
   const minutes = Math.floor((sb.duration || 0) / 60);
+  const rNetWorth = sumNetWorth(getSidePlayers(sb, "radiant"));
+  const dNetWorth = sumNetWorth(getSidePlayers(sb, "dire"));
   const streamButtonsHtml = streamLinks ? `<div class="stream-links">
     ${streamLinks.youtube ? `<a class="stream-btn stream-youtube" href="${streamLinks.youtube}" target="_blank" rel="noopener">▶ YouTube</a>` : ""}
     ${streamLinks.twitch ? `<a class="stream-btn stream-twitch" href="${streamLinks.twitch}" target="_blank" rel="noopener">▶ Twitch</a>` : ""}
@@ -504,7 +509,17 @@ function renderLiveMatchDetail(g, streamLinks) {
     </div>
     ${streamButtonsHtml}
     <div class="team-block-title">Mapa (atualiza a cada ~6s — posições aproximadas)</div>
-    <div id="live-minimap"><div id="live-minimap-dots"></div></div>
+    <div class="minimap-row">
+      <div class="minimap-networth minimap-networth-radiant">
+        <div class="nw-label">${rName}</div>
+        <div class="nw-value">${rNetWorth.toLocaleString("pt-BR")}</div>
+      </div>
+      <div id="live-minimap"><div id="live-minimap-dots"></div></div>
+      <div class="minimap-networth minimap-networth-dire">
+        <div class="nw-label">${dName}</div>
+        <div class="nw-value">${dNetWorth.toLocaleString("pt-BR")}</div>
+      </div>
+    </div>
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
     <div class="picks-row">${picksBansBlock("radiant", true)}${picksBansBlock("radiant", false)}</div>
     <div class="team-block-title">Picks &amp; bans — ${dName}</div>

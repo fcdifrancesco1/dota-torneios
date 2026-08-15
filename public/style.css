@@ -210,9 +210,15 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
 
 .match-header{ text-align:center; margin-bottom:18px; clear:both; }
 .match-header .score{ font-size:32px; letter-spacing:-.01em; }
+.minimap-row{ display:flex; align-items:center; justify-content:center; gap:14px; margin:0 0 16px; flex-wrap:wrap; }
+.minimap-networth{ flex:1; max-width:110px; text-align:center; }
+.nw-label{ font-size:10px; color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:4px; }
+.nw-value{ font-family:'Chakra Petch',sans-serif; font-weight:700; font-size:17px; font-variant-numeric:tabular-nums; }
+.minimap-networth-radiant .nw-value{ color:var(--radiant); }
+.minimap-networth-dire .nw-value{ color:var(--dire); }
 #live-minimap{
-  width:100%; max-width:320px; aspect-ratio:1; margin:0 auto 16px; border-radius:12px; overflow:hidden;
-  position:relative; border:1px solid var(--line);
+  width:100%; max-width:320px; aspect-ratio:1; margin:0; border-radius:12px; overflow:hidden;
+  position:relative; border:1px solid var(--line); flex-shrink:0;
   background-image:url('./minimap.jpg'); background-size:cover; background-position:center;
 }
 #live-minimap-dots{ position:absolute; inset:0; }
