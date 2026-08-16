@@ -776,9 +776,32 @@ async function determineFeaturedLeague() {
     return { leagueid: bestId, name: leagueNameById(bestId), isLive: true, liveGames };
   }
 
+  // ninguém jogando nesse segundo exato — mas pode ter um torneio grande já começado e ainda não
+  // encerrado (entre partidas/rodadas). Prioriza ele sobre o "último encerrado".
+  try {
+    const ongoing = await computeOngoingLeague();
+    if (ongoing) return { leagueid: ongoing.leagueid, name: ongoing.name, isLive: true, liveGames: [] };
+  } catch { /* segue pro fallback de último encerrado */ }
+
   const recent = await computeRecentlyPlayedLeagues();
   if (recent.length) return { leagueid: recent[0].leagueid, name: recent[0].name, isLive: false, liveGames: [] };
   return null;
+}
+
+// torneio grande que já começou e ainda não terminou (mesmo sem partida ao vivo nesse instante)
+async function computeOngoingLeague() {
+  const cached = lsGet("dota:ongoingLeague", null);
+  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.data;
+  const data = await stratzQuery(
+    `query($tiers: [LeagueTier]) {
+      leagues(request: { tiers: $tiers, leagueEnded: false, isFutureLeague: false, take: 5 }) { id displayName startDateTime }
+    }`,
+    { tiers: STRATZ_TOP_TIERS }
+  );
+  const list = ((data && data.leagues) || []).filter((l) => l.startDateTime).sort((a, b) => b.startDateTime - a.startDateTime);
+  const out = list.length ? { leagueid: list[0].id, name: list[0].displayName } : null;
+  lsSet("dota:ongoingLeague", { ts: Date.now(), data: out });
+  return out;
 }
 
 function teamNameMatches(a, b) {
