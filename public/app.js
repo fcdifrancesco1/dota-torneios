@@ -465,6 +465,47 @@ function renderMinimapDots(sb) {
     rPlayers.map((p, i) => dot(p, "minimap-radiant", RADIANT_BASE, i)).join("") +
     dPlayers.map((p, i) => dot(p, "minimap-dire", DIRE_BASE, i)).join("");
 }
+// bitmask de torres/quartéis: bit=1 significa "viva", bit=0 significa "destruída"
+// (convenção padrão da própria Steam API, mesma usada em partidas encerradas)
+const TOWER_GROUPS = [
+  { label: "Topo", bits: [0, 1, 2] },
+  { label: "Meio", bits: [3, 4, 5] },
+  { label: "Baixo", bits: [6, 7, 8] },
+  { label: "Ancião", bits: [9, 10] },
+];
+const RAX_GROUPS = [
+  { label: "Topo", bits: [0, 1] },
+  { label: "Meio", bits: [2, 3] },
+  { label: "Baixo", bits: [4, 5] },
+];
+function isAlive(bitmask, bit) { return (((bitmask || 0) >> bit) & 1) === 1; }
+function renderBuildingGroups(groups, bitmask, kindClass) {
+  return groups.map((g) =>
+    `<div class="building-lane">${g.bits.map((bit) =>
+      `<div class="building-chip ${kindClass} ${isAlive(bitmask, bit) ? "" : "building-dead"}" title="${g.label}"></div>`
+    ).join("")}</div>`
+  ).join("");
+}
+function renderBuildingsPanel(sb, rName, dName) {
+  const rTower = sb.radiant && sb.radiant.tower_state;
+  const dTower = sb.dire && sb.dire.tower_state;
+  const rRax = sb.radiant && sb.radiant.barracks_state;
+  const dRax = sb.dire && sb.dire.barracks_state;
+  if (rTower == null && dTower == null) return ""; // a Steam nem sempre manda esse campo — some sem quebrar
+  const side = (name, tower, rax, cls) => `
+    <div class="buildings-side">
+      <div class="buildings-side-label">${name}</div>
+      <div class="buildings-row-group">${renderBuildingGroups(TOWER_GROUPS, tower, cls)}</div>
+      <div class="buildings-row-group">${renderBuildingGroups(RAX_GROUPS, rax, `${cls} building-rax`)}</div>
+    </div>`;
+  return `
+    <div class="team-block-title">Construções</div>
+    <div class="buildings-panel">
+      ${side(rName, rTower, rRax, "building-radiant")}
+      ${side(dName, dTower, dRax, "building-dire")}
+    </div>`;
+}
+
 function renderLiveMatchDetail(g, streamLinks) {
   const sb = g.scoreboard || {};
   const rName = (g.radiant_team && g.radiant_team.team_name) || "Radiant";
@@ -520,6 +561,7 @@ function renderLiveMatchDetail(g, streamLinks) {
         ${netWorthList(dPlayers)}
       </div>
     </div>
+    ${renderBuildingsPanel(sb, rName, dName)}
     <div class="team-block-title">Picks &amp; bans — ${rName}</div>
     <div class="picks-row">${picksBansBlock("radiant", true)}${picksBansBlock("radiant", false)}</div>
     <div class="team-block-title">Picks &amp; bans — ${dName}</div>
@@ -1038,8 +1080,9 @@ async function loadManualAgenda() {
     if (!Array.isArray(items) || !items.length) return "";
 
     const now = Date.now();
+    const GRACE_MS = 5 * 3600 * 1000; // partidas atrasam na vida real — mantém na lista por até 5h depois do horário marcado
     const future = items
-      .filter((it) => it.data && new Date(it.data).getTime() > now)
+      .filter((it) => it.data && (new Date(it.data).getTime() > now - GRACE_MS))
       .sort((a, b) => new Date(a.data) - new Date(b.data));
     if (!future.length) return "";
 
@@ -1047,14 +1090,16 @@ async function loadManualAgenda() {
     const cardsHtml = future.map((it, i) => {
       const logoA = teamLogoByName(teamIndex, it.timeA);
       const logoB = teamLogoByName(teamIndex, it.timeB);
+      const itemTime = new Date(it.data).getTime();
       const when = new Date(it.data).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      const late = itemTime < now ? ` <span style="color:var(--gold)">· atrasado</span>` : "";
       return `<div class="match-card" data-agenda="${i}">
         <div class="match-teams">
           <div class="team-side">${teamLogoImg(logoA, it.timeA)}<span class="team-name">${it.timeA || "A definir"}</span></div>
           <span class="score" style="font-size:13px">${it.formato || "vs"}</span>
           <div class="team-side team-side-right"><span class="team-name">${it.timeB || "A definir"}</span>${teamLogoImg(logoB, it.timeB)}</div>
         </div>
-        <div class="match-meta"><span>${when}</span><span>${it.fase || ""}</span></div>
+        <div class="match-meta"><span>${when}${late}</span><span>${it.fase || ""}</span></div>
       </div>`;
     }).join("");
 

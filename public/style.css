@@ -217,6 +217,17 @@ h2{ font-size:15px; margin:0 0 12px; display:flex; align-items:baseline; gap:8px
 .nw-row img{ width:18px; height:18px; border-radius:4px; flex-shrink:0; }
 .minimap-networth-radiant .nw-row{ color:var(--radiant); }
 .minimap-networth-dire .nw-row{ color:var(--dire); flex-direction:row-reverse; }
+
+/* Construções (torres/quartéis) */
+.buildings-panel{ display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+.buildings-side{ flex:1; min-width:150px; }
+.buildings-side-label{ font-size:10px; color:var(--ink-tertiary); text-transform:uppercase; letter-spacing:.03em; margin-bottom:6px; }
+.buildings-row-group{ display:flex; gap:8px; margin-bottom:5px; flex-wrap:wrap; }
+.building-lane{ display:flex; gap:3px; }
+.building-chip{ width:9px; height:14px; border-radius:2px; background:var(--radiant); }
+.building-chip.building-dire{ background:var(--dire); }
+.building-chip.building-rax{ width:13px; height:9px; }
+.building-chip.building-dead{ background:var(--line); opacity:.5; }
 #live-minimap{
   width:100%; max-width:320px; aspect-ratio:1; margin:0; border-radius:12px; overflow:hidden;
   position:relative; border:1px solid var(--line); flex-shrink:0;
