@@ -1116,10 +1116,18 @@ async function loadManualAgenda() {
     }
     candidates = candidates.filter((it) => {
       const matches = matchesByTournament[it.torneio] || [];
-      return !matches.some((m) =>
-        (teamNameMatches(m.radiant_name, it.timeA) && teamNameMatches(m.dire_name, it.timeB)) ||
-        (teamNameMatches(m.radiant_name, it.timeB) && teamNameMatches(m.dire_name, it.timeA))
-      );
+      const itemTime = new Date(it.data).getTime();
+      // só considera "já aconteceu" se o jogo real for perto do horário marcado — evita confundir
+      // com um confronto ANTERIOR entre os mesmos dois times (ex: fase de grupos vs eliminatória)
+      const windowStart = itemTime - 3600000; // 1h antes do horário marcado
+      const windowEnd = itemTime + GRACE_MS + 3600000;
+      return !matches.some((m) => {
+        const sameTeams = (teamNameMatches(m.radiant_name, it.timeA) && teamNameMatches(m.dire_name, it.timeB)) ||
+          (teamNameMatches(m.radiant_name, it.timeB) && teamNameMatches(m.dire_name, it.timeA));
+        if (!sameTeams) return false;
+        const mTime = (m.start_time || 0) * 1000;
+        return mTime >= windowStart && mTime <= windowEnd;
+      });
     });
 
     const future = candidates;
