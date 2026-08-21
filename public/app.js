@@ -206,20 +206,29 @@ function isTopTierLeague(id) {
 const STRATZ_TOP_TIERS = ["MINOR", "MAJOR", "INTERNATIONAL", "DPC_LEAGUE", "DPC_LEAGUE_FINALS"];
 
 async function computeRecentlyPlayedLeagues() {
-  const cached = lsGet("dota:recentlyPlayed:v4", null);
-  if (cached && Date.now() - cached.ts < 30 * 60 * 1000) return cached.data;
+  const cached = lsGet("dota:recentlyPlayed:v5", null);
+  if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.data;
   try {
-    const data = await stratzQuery(
-      `query($tiers: [LeagueTier]) {
-        leagues(request: { tiers: $tiers, leagueEnded: true, take: 25 }) { id displayName endDateTime }
-      }`,
-      { tiers: STRATZ_TOP_TIERS }
-    );
-    const list = (data && data.leagues) || [];
-    if (!list.length) throw new Error("STRATZ sem torneios encerrados");
-    const sorted = list.filter((l) => l.endDateTime).sort((a, b) => b.endDateTime - a.endDateTime).slice(0, 5);
-    const out = sorted.map((l) => ({ leagueid: l.id, name: l.displayName }));
-    lsSet("dota:recentlyPlayed:v4", { ts: Date.now(), data: out });
+    const [endedData, ongoing] = await Promise.all([
+      stratzQuery(
+        `query($tiers: [LeagueTier]) {
+          leagues(request: { tiers: $tiers, leagueEnded: true, take: 25 }) { id displayName endDateTime }
+        }`,
+        { tiers: STRATZ_TOP_TIERS }
+      ),
+      computeOngoingLeague().catch(() => null),
+    ]);
+    const endedList = ((endedData && endedData.leagues) || []).filter((l) => l.endDateTime)
+      .sort((a, b) => b.endDateTime - a.endDateTime)
+      .slice(0, 5)
+      .map((l) => ({ leagueid: l.id, name: l.displayName, sortDate: l.endDateTime }));
+    if (!endedList.length && !ongoing) throw new Error("STRATZ sem torneios encontrados");
+
+    let out = endedList;
+    if (ongoing) out = [{ leagueid: ongoing.leagueid, name: ongoing.name, sortDate: ongoing.startDateTime || Date.now() / 1000 }, ...endedList];
+    out.sort((a, b) => b.sortDate - a.sortDate); // do mais novo pro mais antigo
+
+    lsSet("dota:recentlyPlayed:v5", { ts: Date.now(), data: out });
     return out;
   } catch {
     return computeRecentlyPlayedLeaguesFallback();
@@ -768,7 +777,7 @@ function stopOverviewLivePolling() { if (overviewLiveTimer) clearInterval(overvi
 let overviewResultsTimer = null;
 function startOverviewResultsPolling() {
   stopOverviewResultsPolling();
-  overviewResultsTimer = setInterval(() => { loadRecentResults(); loadDefaultStandings(); }, 60000);
+  overviewResultsTimer = setInterval(() => { loadRecentResults(); loadDefaultStandings(); loadUpcoming(); }, 60000);
 }
 function stopOverviewResultsPolling() { if (overviewResultsTimer) clearInterval(overviewResultsTimer); overviewResultsTimer = null; }
 
@@ -832,7 +841,7 @@ async function determineFeaturedLeague() {
 
 // torneio grande que já começou e ainda não terminou (mesmo sem partida ao vivo nesse instante)
 async function computeOngoingLeague() {
-  const cached = lsGet("dota:ongoingLeague", null);
+  const cached = lsGet("dota:ongoingLeague:v2", null);
   if (cached && Date.now() - cached.ts < 10 * 60 * 1000) return cached.data;
   const data = await stratzQuery(
     `query($tiers: [LeagueTier]) {
@@ -841,8 +850,8 @@ async function computeOngoingLeague() {
     { tiers: STRATZ_TOP_TIERS }
   );
   const list = ((data && data.leagues) || []).filter((l) => l.startDateTime).sort((a, b) => b.startDateTime - a.startDateTime);
-  const out = list.length ? { leagueid: list[0].id, name: list[0].displayName } : null;
-  lsSet("dota:ongoingLeague", { ts: Date.now(), data: out });
+  const out = list.length ? { leagueid: list[0].id, name: list[0].displayName, startDateTime: list[0].startDateTime } : null;
+  lsSet("dota:ongoingLeague:v2", { ts: Date.now(), data: out });
   return out;
 }
 
@@ -1081,9 +1090,39 @@ async function loadManualAgenda() {
 
     const now = Date.now();
     const GRACE_MS = 5 * 3600 * 1000; // partidas atrasam na vida real — mantém na lista por até 5h depois do horário marcado
-    const future = items
+    let candidates = items
       .filter((it) => it.data && (new Date(it.data).getTime() > now - GRACE_MS))
       .sort((a, b) => new Date(a.data) - new Date(b.data));
+    if (!candidates.length) return "";
+
+    // tira quem já está ao vivo agora (mesmo que a data marcada tenha passado)
+    const liveGames = (window.__featuredLeague && window.__featuredLeague.liveGames) || [];
+    const isLiveNow = (it) => liveGames.some((g) => {
+      const rN = (g.radiant_team && g.radiant_team.team_name) || "";
+      const dN = (g.dire_team && g.dire_team.team_name) || "";
+      return (teamNameMatches(rN, it.timeA) && teamNameMatches(dN, it.timeB)) || (teamNameMatches(rN, it.timeB) && teamNameMatches(dN, it.timeA));
+    });
+    candidates = candidates.filter((it) => !isLiveNow(it));
+
+    // tira quem já tem partida registrada nos resultados do torneio (já começou ou já terminou)
+    await ensureLeaguesLoaded().catch(() => {});
+    const matchesByTournament = {};
+    for (const it of candidates) {
+      if (!it.torneio || matchesByTournament[it.torneio]) continue;
+      const lid = leagueIdByName(it.torneio);
+      matchesByTournament[it.torneio] = lid
+        ? await odFetch(`leagues/${lid}/matches`).then((m) => enrichTeamNames(m)).catch(() => [])
+        : [];
+    }
+    candidates = candidates.filter((it) => {
+      const matches = matchesByTournament[it.torneio] || [];
+      return !matches.some((m) =>
+        (teamNameMatches(m.radiant_name, it.timeA) && teamNameMatches(m.dire_name, it.timeB)) ||
+        (teamNameMatches(m.radiant_name, it.timeB) && teamNameMatches(m.dire_name, it.timeA))
+      );
+    });
+
+    const future = candidates;
     if (!future.length) return "";
 
     const teamIndex = await ensureTeamsByNameIndex().catch(() => ({}));
@@ -1117,15 +1156,6 @@ async function loadUpcoming() {
   const box = $("#upcoming-list");
   const label = $("#next-league-name");
   box.innerHTML = `<div class="empty-state">Carregando...</div>`;
-
-  const featured = window.__featuredLeague;
-  let liveHtml = "";
-  const liveGames = (featured && featured.isLive) ? featured.liveGames : [];
-  if (liveGames.length) {
-    await ensureTeamLogos(liveGames.flatMap((g) => [g.radiant_team && g.radiant_team.team_id, g.dire_team && g.dire_team.team_id])).catch(() => {});
-    const liveCards = liveGames.map((g, i) => renderLiveCard(g, i)).join("");
-    liveHtml = `<div class="date-group" id="upcoming-live-block"><div class="date-group-header">Ao vivo agora</div><div class="match-grid">${liveCards}</div></div>`;
-  }
 
   let scheduledHtml = await loadManualAgenda();
 
@@ -1174,13 +1204,15 @@ async function loadUpcoming() {
     } catch { /* ignora se falhar */ }
   }
 
-  if (!liveHtml && !scheduledHtml && !nextTournamentHtml) {
-    box.innerHTML = `<div class="empty-state">Nenhuma partida ao vivo ou agendada encontrada agora.</div>`;
+  if (!scheduledHtml && !nextTournamentHtml) {
+    box.innerHTML = `<div class="empty-state">Nenhuma partida agendada encontrada agora.</div>`;
     label.textContent = "";
-    return;
+  } else {
+    box.innerHTML = scheduledHtml + nextTournamentHtml;
   }
-  box.innerHTML = liveHtml + scheduledHtml + nextTournamentHtml;
-  box.querySelectorAll("[data-live]").forEach((el) => el.addEventListener("click", () => openLiveGame(liveGames[+el.dataset.live])));
+  // sempre busca o "ao vivo agora" fresco, direto — não depende do torneio "em destaque" calculado
+  // antes, então funciona mesmo se uma partida come\u00e7ar depois do primeiro carregamento da página.
+  await refreshOverviewLive();
 }
 async function renderUpcomingCard(g) {
   const cache = lsGet("dota:teamNames", {});
